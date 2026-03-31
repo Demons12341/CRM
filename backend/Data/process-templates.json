@@ -1,0 +1,248 @@
+{
+  "templates": [
+    {
+      "id": 1,
+      "name": "\u5FAE\u7535\u7F51\u6807\u51C6\u5DE5\u5E8F\u6A21\u677F",
+      "description": "\u552E\u524D\u5230\u6536\u5C3E\u5168\u6D41\u7A0B\u6807\u51C6\u5DE5\u5E8F",
+      "isDefault": true,
+      "createdAt": "2026-03-24T05:40:54.0720119Z",
+      "updatedAt": "2026-03-26T01:36:30.2599875Z",
+      "steps": [
+        {
+          "id": 1,
+          "sortOrder": 1,
+          "stage": "\u552E\u524D",
+          "name": "\u552E\u524D\u9700\u6C42\u6F84\u6E05",
+          "description": null,
+          "priority": 3,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 2
+        },
+        {
+          "id": 2,
+          "sortOrder": 2,
+          "stage": "\u552E\u524D",
+          "name": "\u73B0\u573A\u8E0F\u52D8\u4E0E\u8D1F\u8377\u8C03\u7814",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 4
+        },
+        {
+          "id": 3,
+          "sortOrder": 3,
+          "stage": "\u65B9\u6848",
+          "name": "\u7ECF\u6D4E\u6027\u6D4B\u7B97\u4E0E\u6295\u8D44\u56DE\u62A5",
+          "description": null,
+          "priority": 3,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 3
+        },
+        {
+          "id": 4,
+          "sortOrder": 4,
+          "stage": "\u5408\u540C",
+          "name": "\u5408\u540C\u6280\u672F\u6761\u6B3E\u786E\u8BA4",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 2
+        },
+        {
+          "id": 5,
+          "sortOrder": 5,
+          "stage": "\u65B9\u6848",
+          "name": "\u65B9\u6848\u521D\u8BBE\u4E0E\u5BB9\u91CF\u914D\u7F6E",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 5
+        },
+        {
+          "id": 6,
+          "sortOrder": 6,
+          "stage": "\u8BBE\u8BA1",
+          "name": "\u521D\u6B65\u8BBE\u8BA1\u8BC4\u5BA1",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 4
+        },
+        {
+          "id": 7,
+          "sortOrder": 7,
+          "stage": "\u8BBE\u8BA1",
+          "name": "\u65BD\u5DE5\u56FE\u4E0EBOM\u51BB\u7ED3",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 5
+        },
+        {
+          "id": 8,
+          "sortOrder": 8,
+          "stage": "\u91C7\u8D2D",
+          "name": "\u5173\u952E\u8BBE\u5907\u91C7\u8D2D\u4E0B\u5355",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 5
+        },
+        {
+          "id": 9,
+          "sortOrder": 9,
+          "stage": "\u91C7\u8D2D",
+          "name": "\u5DE5\u5382FAT\u6D4B\u8BD5",
+          "description": null,
+          "priority": 3,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 3
+        },
+        {
+          "id": 10,
+          "sortOrder": 10,
+          "stage": "\u65BD\u5DE5",
+          "name": "\u8BBE\u5907\u5B89\u88C5\u4E0E\u63A5\u7EBF",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 7
+        },
+        {
+          "id": 11,
+          "sortOrder": 11,
+          "stage": "\u8C03\u8BD5",
+          "name": "\u7CFB\u7EDF\u8054\u8C03\u4E0E\u4FDD\u62A4\u5B9A\u503C",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 5
+        },
+        {
+          "id": 12,
+          "sortOrder": 12,
+          "stage": "\u8C03\u8BD5",
+          "name": "\u5E76\u7F51/\u5E76\u79BB\u7F51\u5207\u6362\u6D4B\u8BD5",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 3
+        },
+        {
+          "id": 13,
+          "sortOrder": 13,
+          "stage": "\u65BD\u5DE5",
+          "name": "\u73B0\u573A\u571F\u5EFA\u4E0E\u57FA\u7840\u65BD\u5DE5",
+          "description": null,
+          "priority": 3,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 6
+        },
+        {
+          "id": 14,
+          "sortOrder": 14,
+          "stage": "\u4EA4\u4ED8",
+          "name": "\u95EE\u9898\u6574\u6539\u95ED\u73AF",
+          "description": null,
+          "priority": 3,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 3
+        },
+        {
+          "id": 15,
+          "sortOrder": 15,
+          "stage": "\u4EA4\u4ED8",
+          "name": "\u8BD5\u8FD0\u884C\u4E0E\u6027\u80FD\u8003\u6838",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 6
+        },
+        {
+          "id": 16,
+          "sortOrder": 16,
+          "stage": "\u6536\u5C3E",
+          "name": "\u6700\u7EC8\u9A8C\u6536\u4E0E\u7ED3\u7B97",
+          "description": null,
+          "priority": 4,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 3
+        },
+        {
+          "id": 17,
+          "sortOrder": 17,
+          "stage": "\u6536\u5C3E",
+          "name": "\u9879\u76EE\u590D\u76D8\u4E0E\u8FD0\u7EF4\u4EA4\u63A5",
+          "description": null,
+          "priority": 2,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 2
+        },
+        {
+          "id": 18,
+          "sortOrder": 18,
+          "stage": "\u6536\u5C3E",
+          "name": "\u7AE3\u5DE5\u8D44\u6599\u4E0E\u57F9\u8BAD\u79FB\u4EA4",
+          "description": null,
+          "priority": 3,
+          "defaultAssigneeId": null,
+          "defaultAssigneeIds": [],
+          "estimatedDays": 2
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "\u9879\u76EE\u6A21\u677F1",
+      "description": "\u9879\u76EE\u6A21\u677F1",
+      "isDefault": false,
+      "createdAt": "2026-03-26T07:56:16.2523502Z",
+      "updatedAt": "2026-03-26T07:56:16.2523502Z",
+      "steps": [
+        {
+          "id": 1,
+          "sortOrder": 1,
+          "stage": "\u552E\u524D",
+          "name": "\u5B9E\u5730\u8003\u5BDF",
+          "description": "",
+          "priority": 2,
+          "defaultAssigneeId": 10,
+          "defaultAssigneeIds": [
+            10
+          ],
+          "estimatedDays": 3
+        },
+        {
+          "id": 2,
+          "sortOrder": 2,
+          "stage": "\u552E\u524D",
+          "name": "\u65B9\u6848\u5236\u5B9A",
+          "description": "",
+          "priority": 2,
+          "defaultAssigneeId": 9,
+          "defaultAssigneeIds": [
+            9
+          ],
+          "estimatedDays": 3
+        }
+      ]
+    }
+  ]
+}

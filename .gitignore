@@ -1,0 +1,35 @@
+# Visual Studio / .NET
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.cache
+*.pdb
+*.log
+
+# Build outputs
+publish/
+**/publish/
+
+# Logs
+logs/
+**/logs/
+
+# ASP.NET uploads (runtime data)
+backend/wwwroot/uploads/
+**/wwwroot/uploads/
+
+# Frontend (Vite/Node)
+frontend/node_modules/
+frontend/dist/
+**/node_modules/
+**/dist/
+
+# Env files
+.env
+.env.*
+
+# OS files
+.DS_Store
+Thumbs.db
