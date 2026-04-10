@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using ProjectManagementSystem.Common;
 using ProjectManagementSystem.Data;
 using ProjectManagementSystem.Models.DTOs;
 using ProjectManagementSystem.Models.Entities;
@@ -836,7 +837,7 @@ namespace ProjectManagementSystem.Services.Implementations
             }
 
             file.IsDeleted = true;
-            file.DeletedAt = DateTime.UtcNow;
+            file.DeletedAt = AppTime.Now;
             await _context.SaveChangesAsync();
 
             return true;
@@ -870,7 +871,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new UnauthorizedAccessException("普通成员只能恢复自己上传的文件");
             }
 
-            if (!file.DeletedAt.HasValue || file.DeletedAt.Value.AddDays(7) < DateTime.UtcNow)
+            if (!file.DeletedAt.HasValue || file.DeletedAt.Value.AddDays(7) < AppTime.Now)
             {
                 throw new InvalidOperationException("该文件已超过恢复期限（7天）");
             }

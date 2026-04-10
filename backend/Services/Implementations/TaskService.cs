@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Hosting;
+using ProjectManagementSystem.Common;
 using ProjectManagementSystem.Data;
 using ProjectManagementSystem.Models.DTOs;
 using ProjectManagementSystem.Models.Entities;
@@ -54,7 +55,7 @@ namespace ProjectManagementSystem.Services.Implementations
 
             if (overdueOnly)
             {
-                query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value < DateTime.UtcNow.Date && t.Status != 2 && t.Status != 3);
+                query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value < AppTime.Today && t.Status != 2 && t.Status != 3);
             }
 
             if (request.ProjectId.HasValue)
@@ -131,7 +132,7 @@ namespace ProjectManagementSystem.Services.Implementations
                     OverdueReason = t.OverdueReason,
                     CreatedAt = t.CreatedAt,
                     UpdatedAt = t.UpdatedAt,
-                    IsOverdue = t.DueDate.HasValue && t.DueDate.Value < DateTime.UtcNow && t.Status != 2
+                    IsOverdue = t.DueDate.HasValue && t.DueDate.Value < AppTime.Now && t.Status != 2
                 })
                 .ToListAsync();
 
@@ -224,7 +225,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 OverdueReason = task.OverdueReason,
                 CreatedAt = task.CreatedAt,
                 UpdatedAt = task.UpdatedAt,
-                IsOverdue = task.DueDate.HasValue && task.DueDate.Value < DateTime.UtcNow && task.Status != 2
+                IsOverdue = task.DueDate.HasValue && task.DueDate.Value < AppTime.Now && task.Status != 2
             };
 
             var collaboratorNames = ExtractDefaultAssigneeNames(task.Description);
@@ -289,7 +290,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 ? await GetActiveUserNamesByIdsAsync(assigneeIds)
                 : new List<string>();
             var primaryAssigneeId = assigneeIds.FirstOrDefault();
-            var initialStatus = request.StartDate.HasValue && request.StartDate.Value.Date < DateTime.UtcNow.Date ? 1 : 0;
+            var initialStatus = request.StartDate.HasValue && request.StartDate.Value.Date < AppTime.Today ? 1 : 0;
 
             var task = new TaskEntity
             {
@@ -583,7 +584,7 @@ namespace ProjectManagementSystem.Services.Implementations
 
             if (isFirstClaim)
             {
-                var startDate = DateTime.Now.Date;
+                var startDate = AppTime.Today;
                 if (!dueDate.HasValue)
                 {
                     throw new InvalidOperationException("首次认领任务请先填写预计截止日期");
@@ -800,7 +801,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 return importedCount;
             }
 
-            var now = DateTime.UtcNow;
+            var now = AppTime.Now;
             var baseDate = project.StartDate?.Date ?? now.Date;
             var templateTasks = await LoadMicrogridTemplateTasksAsync();
             var entities = templateTasks.Select((template, index) => new TaskEntity
@@ -878,7 +879,7 @@ namespace ProjectManagementSystem.Services.Implementations
             var baseDate = tasks
                 .Where(t => t.StartDate.HasValue)
                 .Select(t => t.StartDate!.Value.Date)
-                .DefaultIfEmpty(DateTime.UtcNow.Date)
+                .DefaultIfEmpty(AppTime.Today)
                 .Min();
 
             var templateTasks = tasks.Select(task =>
@@ -915,7 +916,7 @@ namespace ProjectManagementSystem.Services.Implementations
 
             var normalizedTemplateName = templateName?.Trim();
             var processTemplateName = string.IsNullOrWhiteSpace(normalizedTemplateName)
-                ? $"{project.Name}-导出工序-{DateTime.Now:yyyyMMddHHmmss}"
+                ? $"{project.Name}-导出工序-{AppTime.Now:yyyyMMddHHmmss}"
                 : normalizedTemplateName;
             var processTemplateRequest = new CreateProcessTemplateRequest
             {
@@ -1214,7 +1215,7 @@ namespace ProjectManagementSystem.Services.Implementations
             {
                 var previousEndDate = currentTask.CompletedAt?.Date
                     ?? currentTask.DueDate?.Date
-                    ?? DateTime.UtcNow.Date;
+                    ?? AppTime.Today;
 
                 var dateChanges = new List<(int taskId, string oldSummary, string newSummary)>();
                 var chainStart = previousEndDate;

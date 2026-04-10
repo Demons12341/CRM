@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ProjectManagementSystem.Common;
 using ProjectManagementSystem.Data;
 using ProjectManagementSystem.Models.DTOs;
 using ProjectManagementSystem.Services.Interfaces;
@@ -50,7 +51,7 @@ namespace ProjectManagementSystem.Services.Implementations
             var activeProjects = await projectQuery.CountAsync(p => p.Status == 1);
             var totalTasks = await taskQuery.CountAsync();
             var overdueTasks = await taskQuery
-                .CountAsync(t => t.DueDate.HasValue && t.DueDate.Value < DateTime.UtcNow && t.Status != 2 && t.Status != 3);
+                .CountAsync(t => t.DueDate.HasValue && t.DueDate.Value < AppTime.Now && t.Status != 2 && t.Status != 3);
 
             return new DashboardOverviewDto
             {
@@ -106,7 +107,7 @@ namespace ProjectManagementSystem.Services.Implementations
                     Progress = t.Progress,
                     CreatedAt = t.CreatedAt,
                     UpdatedAt = t.UpdatedAt,
-                    IsOverdue = t.DueDate.HasValue && t.DueDate.Value < DateTime.UtcNow && t.Status != 2
+                    IsOverdue = t.DueDate.HasValue && t.DueDate.Value < AppTime.Now && t.Status != 2
                 })
                 .OrderByDescending(t => t.CreatedAt)
                 .Take(10)

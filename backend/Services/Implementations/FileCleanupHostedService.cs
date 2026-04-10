@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ProjectManagementSystem.Common;
 using ProjectManagementSystem.Data;
 using FileEntity = ProjectManagementSystem.Models.Entities.File;
 
@@ -42,7 +43,7 @@ namespace ProjectManagementSystem.Services.Implementations
 
         private async Task CleanupExpiredDeletedFilesAsync(CancellationToken cancellationToken)
         {
-            var cutoffTime = DateTime.UtcNow.Subtract(RetentionPeriod);
+            var cutoffTime = AppTime.Now.Subtract(RetentionPeriod);
 
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();

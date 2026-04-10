@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ProjectManagementSystem.Common;
 using ProjectManagementSystem.Data;
 using ProjectManagementSystem.Models.DTOs;
 using ProjectManagementSystem.Models.Entities;
@@ -49,7 +50,7 @@ namespace ProjectManagementSystem.Services.Implementations
             var totalCount = await query.CountAsync();
             var totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize);
 
-            var today = DateTime.UtcNow.Date;
+            var today = AppTime.Today;
 
             var projects = await query
                 .OrderBy(p => p.Status == 2 ? 1 : 0)

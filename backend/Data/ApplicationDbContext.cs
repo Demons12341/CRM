@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using ProjectManagementSystem.Common;
 using ProjectManagementSystem.Models.Entities;
 using Task = ProjectManagementSystem.Models.Entities.Task;
 using File = ProjectManagementSystem.Models.Entities.File;
@@ -20,6 +22,69 @@ namespace ProjectManagementSystem.Data
         public DbSet<File> Files { get; set; }
         public DbSet<TaskLog> TaskLogs { get; set; }
         public DbSet<Alert> Alerts { get; set; }
+
+        public override int SaveChanges()
+        {
+            NormalizeDateTimeValues();
+            return base.SaveChanges();
+        }
+
+        public override int SaveChanges(bool acceptAllChangesOnSuccess)
+        {
+            NormalizeDateTimeValues();
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+
+        public override System.Threading.Tasks.Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            NormalizeDateTimeValues();
+            return base.SaveChangesAsync(cancellationToken);
+        }
+
+        public override System.Threading.Tasks.Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+        {
+            NormalizeDateTimeValues();
+            return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+
+        private void NormalizeDateTimeValues()
+        {
+            var trackedEntries = ChangeTracker.Entries()
+                .Where(entry => entry.State == EntityState.Added || entry.State == EntityState.Modified)
+                .ToList();
+
+            foreach (var entry in trackedEntries)
+            {
+                NormalizeEntryDateTime(entry);
+            }
+        }
+
+        private static void NormalizeEntryDateTime(EntityEntry entry)
+        {
+            foreach (var property in entry.Properties)
+            {
+                var propertyType = property.Metadata.ClrType;
+                if (propertyType == typeof(DateTime))
+                {
+                    if (property.CurrentValue is DateTime dateTime)
+                    {
+                        property.CurrentValue = ConvertToAppTime(dateTime);
+                    }
+                }
+                else if (propertyType == typeof(DateTime?))
+                {
+                    if (property.CurrentValue is DateTime nullableDateTime)
+                    {
+                        property.CurrentValue = ConvertToAppTime(nullableDateTime);
+                    }
+                }
+            }
+        }
+
+        private static DateTime ConvertToAppTime(DateTime value)
+        {
+            return AppTime.ConvertToChinaTime(value);
+        }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

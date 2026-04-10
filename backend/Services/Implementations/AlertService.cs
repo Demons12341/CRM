@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ProjectManagementSystem.Common;
 using ProjectManagementSystem.Data;
 using ProjectManagementSystem.Models.DTOs;
 using ProjectManagementSystem.Models.Entities;
@@ -305,7 +306,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 .ToDictionary(a => $"{a.TaskId!.Value}_{a.UserId}", a => a);
 
             var validKeys = new HashSet<string>();
-            var today = DateTime.UtcNow.Date;
+            var today = AppTime.Today;
 
             foreach (var task in tasks)
             {
@@ -412,7 +413,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 .ToDictionary(a => $"{a.ProjectId!.Value}_{a.UserId}", a => a);
 
             var validKeys = new HashSet<string>();
-            var today = DateTime.UtcNow.Date;
+            var today = AppTime.Today;
 
             foreach (var project in projects)
             {
