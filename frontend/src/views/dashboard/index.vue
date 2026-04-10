@@ -64,7 +64,7 @@
           <template #header>
             <div class="card-header">
               <span>我的任务</span>
-              <el-button type="primary" link @click="router.push('/tasks')">
+              <el-button type="primary" link @click="viewMyTaskScopeAll">
                 查看全部
               </el-button>
             </div>
@@ -171,6 +171,10 @@ const fetchDashboardData = async () => {
 
 const viewOverdueTasks = () => {
   router.push({ path: '/tasks', query: { overdueOnly: 'true' } })
+}
+
+const viewMyTaskScopeAll = () => {
+  router.push({ path: '/tasks', query: { myOpenScope: 'true' } })
 }
 
 const getPriorityType = (priority: number) => {

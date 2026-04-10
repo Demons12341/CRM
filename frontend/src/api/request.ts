@@ -50,10 +50,12 @@ service.interceptors.response.use(
           if (requestUrl.includes('/auth/login')) {
             if (!silentError) ElMessage.error(serverMessage || '用户名或密码错误')
           } else {
-            if (!silentError) ElMessage.error(serverMessage || '登录已过期，请重新登录')
+            if (!silentError) ElMessage.error('登录已过期，请重新登录')
             localStorage.removeItem('token')
             localStorage.removeItem('user')
-            router.push('/login')
+            if (router.currentRoute.value.path !== '/login') {
+              router.replace('/login')
+            }
           }
           break
         case 403:

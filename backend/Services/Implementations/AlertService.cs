@@ -9,6 +9,7 @@ namespace ProjectManagementSystem.Services.Implementations
 {
     public class AlertService : IAlertService
     {
+        private const string SharedFolderProjectName = "共享文件夹";
         private readonly ApplicationDbContext _context;
 
         public AlertService(ApplicationDbContext context)
@@ -20,6 +21,12 @@ namespace ProjectManagementSystem.Services.Implementations
         {
             await EnsureOverdueAlertsAsync();
 
+            var hiddenProjectIds = await _context.Projects
+                .AsNoTracking()
+                .Where(p => p.Name == SharedFolderProjectName)
+                .Select(p => p.Id)
+                .ToListAsync();
+
             var query = _context.Alerts
                 .Include(a => a.Project)
                 .ThenInclude(p => p!.Manager)
@@ -27,6 +34,11 @@ namespace ProjectManagementSystem.Services.Implementations
                 .ThenInclude(t => t!.Assignee)
                 .Where(a => a.UserId == userId)
                 .AsQueryable();
+
+            if (hiddenProjectIds.Any())
+            {
+                query = query.Where(a => !a.ProjectId.HasValue || !hiddenProjectIds.Contains(a.ProjectId.Value));
+            }
 
             if (alertType.HasValue)
             {
@@ -42,7 +54,8 @@ namespace ProjectManagementSystem.Services.Implementations
             var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
             var alertEntities = await query
-                .OrderByDescending(a => a.CreatedAt)
+                .OrderBy(a => a.AlertType == 2 ? 0 : (a.AlertType == 1 ? 1 : 2))
+                .ThenByDescending(a => a.CreatedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
@@ -102,9 +115,22 @@ namespace ProjectManagementSystem.Services.Implementations
         {
             await EnsureOverdueAlertsAsync();
 
-            return await _context.Alerts
+            var hiddenProjectIds = await _context.Projects
+                .AsNoTracking()
+                .Where(p => p.Name == SharedFolderProjectName)
+                .Select(p => p.Id)
+                .ToListAsync();
+
+            var query = _context.Alerts
                 .Where(a => a.UserId == userId && !a.IsRead)
-                .CountAsync();
+                .AsQueryable();
+
+            if (hiddenProjectIds.Any())
+            {
+                query = query.Where(a => !a.ProjectId.HasValue || !hiddenProjectIds.Contains(a.ProjectId.Value));
+            }
+
+            return await query.CountAsync();
         }
 
         public async Task<bool> MarkAsReadAsync(int id, int userId)

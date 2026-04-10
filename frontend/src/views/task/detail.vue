@@ -28,12 +28,8 @@
       <div class="submit-actions">
         <el-button v-if="canClaimTask" type="warning" :loading="claimLoading" @click="claimTask">认领任务</el-button>
         <el-button v-if="canEditTask" type="primary" @click="openWorkDialog">提交工作记录</el-button>
-        <el-button
-          v-if="canEditTask"
-          type="success"
-          :loading="completeLoading"
-          @click="completeTask"
-        >
+        <el-button v-if="canEditTask" type="success" :loading="completeLoading"
+          :disabled="task?.status === 2 || task?.status === 3" @click="completeTask">
           完成任务
         </el-button>
       </div>
@@ -51,15 +47,16 @@
         <el-form-item label="交付物">
           <div class="deliverables-row">
             <el-input v-model="workSubmitForm.deliverables" placeholder="如：施工图V2、调试报告、现场照片" />
-            <el-upload
-              :show-file-list="false"
-              :before-upload="beforeDeliverableUpload"
-              :http-request="uploadDeliverableFile"
-              :disabled="uploadDeliverableLoading"
-            >
+            <el-upload :show-file-list="false" :before-upload="beforeDeliverableUpload"
+              :http-request="uploadDeliverableFile" :disabled="uploadDeliverableLoading">
               <el-button :loading="uploadDeliverableLoading">上传文件</el-button>
             </el-upload>
           </div>
+          <div v-if="uploadDeliverableLoading" class="deliverables-progress">
+            <div class="deliverables-progress-text">正在上传：{{ uploadingDeliverableName || '交付物文件' }}（{{ uploadDeliverableProgress }}%）</div>
+            <el-progress :percentage="uploadDeliverableProgress" :stroke-width="8" />
+          </div>
+          <div class="deliverables-hint">{{ deliverablesHintText }}</div>
         </el-form-item>
         <el-form-item label="阻塞问题">
           <el-input v-model="workSubmitForm.blockers" placeholder="如：设备未到货、接口人未确认" />
@@ -109,6 +106,8 @@ const submitLoading = ref(false)
 const completeLoading = ref(false)
 const claimLoading = ref(false)
 const uploadDeliverableLoading = ref(false)
+const uploadDeliverableProgress = ref(0)
+const uploadingDeliverableName = ref('')
 const workDialogVisible = ref(false)
 const logDialogVisible = ref(false)
 
@@ -154,6 +153,12 @@ const workSubmitForm = ref({
   deliverables: '',
   blockers: '',
   nextPlan: ''
+})
+
+const deliverablesHintText = computed(() => {
+  const projectName = task.value?.projectName || '所属项目'
+  const folderName = getTaskFolderName()
+  return `提交后可在 文件管理 > ${projectName} > ${folderName} 查看上传内容`
 })
 
 const fetchTaskDetail = async () => {
@@ -254,6 +259,8 @@ const uploadDeliverableFile = async (options: any) => {
   }
 
   uploadDeliverableLoading.value = true
+  uploadDeliverableProgress.value = 0
+  uploadingDeliverableName.value = options?.file?.name || ''
   try {
     const folderId = await ensureTaskFolderId()
 
@@ -265,6 +272,13 @@ const uploadDeliverableFile = async (options: any) => {
     await request.post(`/projects/${task.value.projectId}/files`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
+      },
+      onUploadProgress: (event: any) => {
+        const loaded = Number(event?.loaded || 0)
+        const total = Number(event?.total || 0)
+        if (total > 0) {
+          uploadDeliverableProgress.value = Math.min(100, Math.round((loaded / total) * 100))
+        }
       }
     })
 
@@ -281,6 +295,8 @@ const uploadDeliverableFile = async (options: any) => {
     options.onError?.(error)
   } finally {
     uploadDeliverableLoading.value = false
+    uploadDeliverableProgress.value = 0
+    uploadingDeliverableName.value = ''
   }
 }
 
@@ -337,9 +353,13 @@ const completeTask = async () => {
     return
   }
 
+  if (task.value?.status === 2 || task.value?.status === 3) {
+    return
+  }
+
   completeLoading.value = true
   try {
-    await request.put(`/tasks/${taskId.value}/status`, { status: 2 })
+    await request.put(`/tasks/${taskId.value}/status`, { status: 2 }, { headers: { 'X-Silent-Error': '1' } })
     ElMessage.success('任务已完成')
     await Promise.all([fetchTaskDetail(), fetchTaskLogs()])
   } catch (error) {
@@ -405,7 +425,15 @@ const formatDateTime = (date: string) => {
 }
 
 const goBack = () => {
-  router.push('/tasks')
+  router.push({
+    path: '/tasks',
+    query: {
+      projectId: route.query.projectId,
+      focusTaskId: route.query.focusTaskId,
+      overdueOnly: route.query.overdueOnly,
+      myOpenScope: route.query.myOpenScope
+    }
+  })
 }
 
 onMounted(async () => {
@@ -418,7 +446,6 @@ onMounted(async () => {
 
   if (route.query.needWorkContent === 'true') {
     if (canEditTask.value) {
-      ElMessage.warning('请先提交一次工作内容，再将任务标记为完成')
       workDialogVisible.value = true
     }
   }
@@ -453,11 +480,27 @@ onMounted(async () => {
   flex: 1;
 }
 
+.deliverables-hint {
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.deliverables-progress {
+  margin-top: 8px;
+}
+
+.deliverables-progress-text {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 6px;
+}
+
 .submit-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
-
 </style>

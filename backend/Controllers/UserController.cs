@@ -126,5 +126,39 @@ namespace ProjectManagementSystem.Controllers
                 });
             }
         }
+
+        [HttpGet("import-template/download")]
+        public async Task<IActionResult> DownloadImportTemplate()
+        {
+            var fileBytes = await _userService.BuildUserImportTemplateAsync();
+            return File(
+                fileBytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "用户导入模板.xlsx"
+            );
+        }
+
+        [HttpPost("import-template/upload")]
+        public async Task<ActionResult<ApiResponse<ImportUsersResultDto>>> ImportUsersByExcel([FromForm] IFormFile file)
+        {
+            try
+            {
+                var data = await _userService.ImportUsersFromExcelAsync(file);
+                return Ok(new ApiResponse<ImportUsersResultDto>
+                {
+                    Success = true,
+                    Data = data,
+                    Message = $"导入完成：成功 {data.ImportedCount} 条，跳过 {data.SkippedCount} 条"
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
     }
 }

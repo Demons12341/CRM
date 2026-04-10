@@ -62,6 +62,14 @@ namespace ProjectManagementSystem.Models.DTOs
         public int PageSize { get; set; } = 10;
     }
 
+    public class ImportUsersResultDto
+    {
+        public int TotalCount { get; set; }
+        public int ImportedCount { get; set; }
+        public int SkippedCount { get; set; }
+        public List<string> SkippedUsers { get; set; } = new List<string>();
+    }
+
     public class PaginatedResult<T>
     {
         public List<T> Items { get; set; } = new List<T>();

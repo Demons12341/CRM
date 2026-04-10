@@ -249,6 +249,24 @@ using (var scope = app.Services.CreateScope())
 
     try
     {
+        dbContext.Database.ExecuteSqlRaw("ALTER TABLE `Files` ADD COLUMN `IsShared` TINYINT(1) NOT NULL DEFAULT 0;");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("Files.IsShared 列初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("UPDATE `Files` f INNER JOIN `Projects` p ON f.`ProjectId` = p.`Id` SET f.`IsShared` = 1 WHERE p.`Name` = '共享文件夹';");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("Files.IsShared 默认值回填跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
         dbContext.Database.ExecuteSqlRaw("CREATE INDEX `IX_Files_ProjectId_ParentId_IsDeleted` ON `Files` (`ProjectId`, `ParentId`, `IsDeleted`);");
     }
     catch (Exception ex)

@@ -191,7 +191,7 @@ namespace ProjectManagementSystem.Services.Implementations
             }
         }
 
-        public async System.Threading.Tasks.Task<int> ApplyDefaultTemplateToProjectAsync(int projectId, int fallbackAssigneeId, int operatorUserId, int? templateId = null)
+        public async System.Threading.Tasks.Task<int> ApplyDefaultTemplateToProjectAsync(int projectId, int? fallbackAssigneeId, int operatorUserId, int? templateId = null)
         {
             var project = await _context.Projects
                 .AsNoTracking()
@@ -239,7 +239,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 previousTaskEndDate = dueDate;
 
                 var preferredAssigneeIds = NormalizeAssigneeIds(step.DefaultAssigneeIds, step.DefaultAssigneeId);
-                var assigneeId = fallbackAssigneeId;
+                int? assigneeId = null;
                 if (preferredAssigneeIds.Count > 0)
                 {
                     var availableAssignees = await _context.Users
@@ -260,9 +260,12 @@ namespace ProjectManagementSystem.Services.Implementations
                     }
                 }
 
-                if (!await _context.Users.AnyAsync(u => u.Id == assigneeId))
+                if (!assigneeId.HasValue && fallbackAssigneeId.HasValue && fallbackAssigneeId.Value > 0)
                 {
-                    assigneeId = fallbackAssigneeId;
+                    if (await _context.Users.AnyAsync(u => u.Id == fallbackAssigneeId.Value))
+                    {
+                        assigneeId = fallbackAssigneeId.Value;
+                    }
                 }
 
                 var assigneeNames = await _context.Users

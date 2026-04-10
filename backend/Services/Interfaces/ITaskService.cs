@@ -11,9 +11,10 @@ namespace ProjectManagementSystem.Services.Interfaces
         Task<bool> DeleteTaskAsync(int id);
         Task<TaskDto> UpdateTaskProgressAsync(int id, UpdateTaskProgressRequest request, int userId);
         Task<TaskDto> UpdateTaskStatusAsync(int id, UpdateTaskStatusRequest request, int userId);
-        Task<TaskDto> ClaimTaskAsync(int id, int userId);
+        Task<TaskDto> ClaimTaskAsync(int id, int userId, DateTime? dueDate);
         Task<List<TaskLogDto>> GetTaskLogsAsync(int taskId);
-        Task<int> ImportMicrogridTemplateAsync(int projectId, int userId, int? defaultAssigneeId);
+        Task<int> ImportMicrogridTemplateAsync(int projectId, int userId, int? defaultAssigneeId, int? templateId);
+        Task<int> ExportMicrogridTemplateAsync(int projectId, int userId, string? templateName);
         Task<TaskDto> SubmitTaskWorkAsync(int id, SubmitTaskWorkRequest request, int userId);
         Task<TaskDto> ReviewTaskWorkAsync(int id, ReviewTaskWorkRequest request, int userId);
     }

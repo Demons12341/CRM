@@ -10,6 +10,8 @@ namespace ProjectManagementSystem.Services.Interfaces
         Task<ProjectDto> UpdateProjectAsync(int id, UpdateProjectRequest request);
         Task<bool> DeleteProjectAsync(int id, int currentUserId);
         Task<bool> CanUserAccessProjectAsync(int projectId, int userId);
+        Task<bool> CanUserEditProjectAsync(int projectId, int userId);
+        Task<bool> CanUserManageProjectMembersAsync(int projectId, int userId);
         Task<List<ProjectMemberDto>> GetProjectMembersAsync(int projectId);
         Task<ProjectMemberDto> AddProjectMemberAsync(int projectId, AddProjectMemberRequest request);
         Task<bool> RemoveProjectMemberAsync(int projectId, int userId);

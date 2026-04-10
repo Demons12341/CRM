@@ -22,13 +22,24 @@ namespace ProjectManagementSystem.Controllers
         [HttpGet]
         public async Task<ActionResult<ApiResponse<PaginatedResult<TaskDto>>>> GetTasks([FromQuery] TaskListRequest request)
         {
-            var userId = GetCurrentUserId();
-            var data = await _taskService.GetTasksAsync(request, userId);
-            return Ok(new ApiResponse<PaginatedResult<TaskDto>>
+            try
             {
-                Success = true,
-                Data = data
-            });
+                var userId = GetCurrentUserId();
+                var data = await _taskService.GetTasksAsync(request, userId);
+                return Ok(new ApiResponse<PaginatedResult<TaskDto>>
+                {
+                    Success = true,
+                    Data = data
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
         }
 
         [HttpGet("{id}")]
@@ -78,6 +89,22 @@ namespace ProjectManagementSystem.Controllers
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse<object>
                 {
                     Success = false,
                     Message = ex.Message
@@ -145,6 +172,22 @@ namespace ProjectManagementSystem.Controllers
                     Message = ex.Message
                 });
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
         }
 
         [HttpPut("{id}/progress")]
@@ -204,12 +247,12 @@ namespace ProjectManagementSystem.Controllers
         }
 
         [HttpPut("{id}/claim")]
-        public async Task<ActionResult<ApiResponse<TaskDto>>> ClaimTask(int id)
+        public async Task<ActionResult<ApiResponse<TaskDto>>> ClaimTask(int id, [FromBody] ClaimTaskRequest? request)
         {
             try
             {
                 var userId = GetCurrentUserId();
-                var data = await _taskService.ClaimTaskAsync(id, userId);
+                var data = await _taskService.ClaimTaskAsync(id, userId, request?.DueDate);
                 return Ok(new ApiResponse<TaskDto>
                 {
                     Success = true,
@@ -260,7 +303,7 @@ namespace ProjectManagementSystem.Controllers
             try
             {
                 var userId = GetCurrentUserId();
-                var count = await _taskService.ImportMicrogridTemplateAsync(projectId, userId, request.DefaultAssigneeId);
+                var count = await _taskService.ImportMicrogridTemplateAsync(projectId, userId, request.DefaultAssigneeId, request.TemplateId);
                 return Ok(new ApiResponse<object>
                 {
                     Success = true,
@@ -278,6 +321,53 @@ namespace ProjectManagementSystem.Controllers
             catch (InvalidOperationException ex)
             {
                 return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        [HttpPost("/api/projects/{projectId}/tasks/microgrid-template/export")]
+        public async Task<ActionResult<ApiResponse<object>>> ExportMicrogridTemplate(int projectId, [FromBody] ExportMicrogridTemplateRequest? request)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var count = await _taskService.ExportMicrogridTemplateAsync(projectId, userId, request?.TemplateName);
+                return Ok(new ApiResponse<object>
+                {
+                    Success = true,
+                    Message = $"已导出 {count} 个任务到微电网标准工序，并新增项目任务模板"
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
                 {
                     Success = false,
                     Message = ex.Message

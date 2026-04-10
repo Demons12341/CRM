@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Hosting;
 using ProjectManagementSystem.Data;
 using ProjectManagementSystem.Models.DTOs;
 using ProjectManagementSystem.Models.Entities;
 using ProjectManagementSystem.Services.Interfaces;
+using System.Text.Json;
 using TaskEntity = ProjectManagementSystem.Models.Entities.Task;
 
 namespace ProjectManagementSystem.Services.Implementations
@@ -11,10 +13,14 @@ namespace ProjectManagementSystem.Services.Implementations
     {
         private const string SharedFolderProjectName = "共享文件夹";
         private readonly ApplicationDbContext _context;
+        private readonly IWebHostEnvironment _environment;
+        private readonly IProcessTemplateService _processTemplateService;
 
-        public TaskService(ApplicationDbContext context)
+        public TaskService(ApplicationDbContext context, IWebHostEnvironment environment, IProcessTemplateService processTemplateService)
         {
             _context = context;
+            _environment = environment;
+            _processTemplateService = processTemplateService;
         }
 
         public async Task<PaginatedResult<TaskDto>> GetTasksAsync(TaskListRequest request, int currentUserId)
@@ -53,6 +59,19 @@ namespace ProjectManagementSystem.Services.Implementations
 
             if (request.ProjectId.HasValue)
             {
+                if (currentUser.Role.Name != "管理员")
+                {
+                    var hasProjectAccess = await _context.Projects
+                        .AsNoTracking()
+                        .AnyAsync(p => p.Id == request.ProjectId.Value &&
+                            (p.ManagerId == currentUserId || _context.ProjectMembers.Any(pm => pm.ProjectId == p.Id && pm.UserId == currentUserId)));
+
+                    if (!hasProjectAccess)
+                    {
+                        throw new UnauthorizedAccessException("暂无该项目访问权限");
+                    }
+                }
+
                 query = query.Where(t => t.ProjectId == request.ProjectId.Value);
             }
 
@@ -66,6 +85,13 @@ namespace ProjectManagementSystem.Services.Implementations
                 query = query.Where(t => t.Status == request.Status.Value);
             }
 
+            if (request.MyOpenScope == true)
+            {
+                query = query.Where(t =>
+                    (t.AssigneeId.HasValue && t.AssigneeId.Value == currentUserId)
+                    || (t.Project.ManagerId == currentUserId && t.Status != 2 && t.Status != 3));
+            }
+
             if (!string.IsNullOrWhiteSpace(request.Keyword))
             {
                 query = query.Where(t => t.Title.Contains(request.Keyword) || (t.Description != null && t.Description.Contains(request.Keyword)));
@@ -75,7 +101,10 @@ namespace ProjectManagementSystem.Services.Implementations
             var totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize);
 
             var tasks = await query
-                .OrderByDescending(t => t.CreatedAt)
+                .OrderByDescending(t => t.Project.Priority)
+                .ThenByDescending(t => t.UpdatedAt)
+                .ThenByDescending(t => t.CreatedAt)
+                .ThenBy(t => t.Id)
                 .Skip((request.Page - 1) * request.PageSize)
                 .Take(request.PageSize)
                 .Select(t => new TaskDto
@@ -224,6 +253,16 @@ namespace ProjectManagementSystem.Services.Implementations
         {
             ValidateDateRange(request.StartDate, request.DueDate, "任务预计开始时间", "任务预计截止时间");
 
+            var currentUser = await _context.Users
+                .Include(u => u.Role)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+
+            if (currentUser == null)
+            {
+                throw new UnauthorizedAccessException("用户不存在或已禁用");
+            }
+
             var project = await _context.Projects
                 .AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == request.ProjectId);
@@ -233,11 +272,24 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new KeyNotFoundException("项目不存在");
             }
 
+            if (currentUser.Role.Name != "管理员" && project.ManagerId != userId)
+            {
+                var isProjectMember = await _context.ProjectMembers
+                    .AsNoTracking()
+                    .AnyAsync(pm => pm.ProjectId == request.ProjectId && pm.UserId == userId);
+
+                if (!isProjectMember)
+                {
+                    throw new UnauthorizedAccessException("暂无该项目访问权限");
+                }
+            }
+
             var assigneeIds = NormalizeAssigneeIds(request.AssigneeIds, request.AssigneeId);
             var assigneeNames = assigneeIds.Any()
                 ? await GetActiveUserNamesByIdsAsync(assigneeIds)
                 : new List<string>();
             var primaryAssigneeId = assigneeIds.FirstOrDefault();
+            var initialStatus = request.StartDate.HasValue && request.StartDate.Value.Date < DateTime.UtcNow.Date ? 1 : 0;
 
             var task = new TaskEntity
             {
@@ -247,7 +299,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 AssigneeId = primaryAssigneeId == 0 ? null : primaryAssigneeId,
                 MilestoneId = request.MilestoneId,
                 Priority = project.Priority,
-                Status = 0,
+                Status = initialStatus,
                 StartDate = request.StartDate,
                 DueDate = request.DueDate,
                 Progress = 0,
@@ -257,6 +309,8 @@ namespace ProjectManagementSystem.Services.Implementations
 
             _context.Tasks.Add(task);
             await _context.SaveChangesAsync();
+
+            await SyncProjectStatusByTasksAsync(task.ProjectId);
 
             // 记录任务日志
             await AddTaskLogAsync(task.Id, userId, "创建任务", null, task.Title);
@@ -465,10 +519,12 @@ namespace ProjectManagementSystem.Services.Implementations
                 await ActivateNextTaskAsync(task, userId, shouldAdjustNextTaskSchedule);
             }
 
+            await SyncProjectStatusByTasksAsync(task.ProjectId);
+
             return await GetTaskByIdAsync(id);
         }
 
-        public async Task<TaskDto> ClaimTaskAsync(int id, int userId)
+        public async Task<TaskDto> ClaimTaskAsync(int id, int userId, DateTime? dueDate)
         {
             var task = await _context.Tasks
                 .Include(t => t.Project)
@@ -495,20 +551,54 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new UnauthorizedAccessException("用户不存在或已禁用");
             }
 
-            var isAdmin = currentUser.Role.Name == "管理员";
-            var isProjectManager = task.Project.ManagerId == userId;
-            var isProjectMember = await _context.ProjectMembers
-                .AsNoTracking()
-                .AnyAsync(pm => pm.ProjectId == task.ProjectId && pm.UserId == userId);
+            var projectMember = await _context.ProjectMembers
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(pm => pm.ProjectId == task.ProjectId && pm.UserId == userId);
 
-            if (!isAdmin && !isProjectManager && !isProjectMember)
+            if (projectMember == null)
             {
-                throw new UnauthorizedAccessException("仅项目负责人或项目成员可认领任务");
+                _context.ProjectMembers.Add(new ProjectMember
+                {
+                    ProjectId = task.ProjectId,
+                    UserId = userId,
+                    Role = "成员",
+                    JoinedAt = DateTime.UtcNow,
+                    IsDeleted = false
+                });
+            }
+            else if (projectMember.IsDeleted)
+            {
+                projectMember.IsDeleted = false;
+                if (string.IsNullOrWhiteSpace(projectMember.Role))
+                {
+                    projectMember.Role = "成员";
+                }
+                projectMember.JoinedAt = DateTime.UtcNow;
             }
 
             var oldAssigneeDisplay = await BuildAssigneeDisplayForTaskAsync(task.AssigneeId, task.Description);
+            var isFirstClaim = !task.AssigneeId.HasValue;
 
             task.AssigneeId = userId;
+
+            if (isFirstClaim)
+            {
+                var startDate = DateTime.Now.Date;
+                if (!dueDate.HasValue)
+                {
+                    throw new InvalidOperationException("首次认领任务请先填写预计截止日期");
+                }
+
+                ValidateDateRange(startDate, dueDate.Value.Date, "任务预计开始时间", "任务预计截止时间");
+                task.StartDate = startDate;
+                task.DueDate = dueDate.Value.Date;
+
+                if (task.Status != 1)
+                {
+                    await AddTaskLogAsync(id, userId, "更新状态", GetStatusName(task.Status), GetStatusName(1));
+                    task.Status = 1;
+                }
+            }
 
             var assigneeNames = ExtractDefaultAssigneeNames(task.Description);
             if (!string.IsNullOrWhiteSpace(currentUser.Username) && !assigneeNames.Contains(currentUser.Username))
@@ -523,6 +613,8 @@ namespace ProjectManagementSystem.Services.Implementations
 
             task.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
+            await SyncProjectStatusByTasksAsync(task.ProjectId);
 
             return await GetTaskByIdAsync(id);
         }
@@ -551,6 +643,8 @@ namespace ProjectManagementSystem.Services.Implementations
             }
 
             await _context.SaveChangesAsync();
+
+            await SyncProjectStatusByTasksAsync(task.ProjectId);
 
             return true;
         }
@@ -627,6 +721,8 @@ namespace ProjectManagementSystem.Services.Implementations
                 await ActivateNextTaskAsync(task, userId, false);
             }
 
+            await SyncProjectStatusByTasksAsync(task.ProjectId);
+
             return await GetTaskByIdAsync(id);
         }
 
@@ -650,8 +746,18 @@ namespace ProjectManagementSystem.Services.Implementations
                 .ToListAsync();
         }
 
-        public async Task<int> ImportMicrogridTemplateAsync(int projectId, int userId, int? defaultAssigneeId)
+        public async Task<int> ImportMicrogridTemplateAsync(int projectId, int userId, int? defaultAssigneeId, int? templateId)
         {
+            var currentUser = await _context.Users
+                .Include(u => u.Role)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+
+            if (currentUser == null)
+            {
+                throw new UnauthorizedAccessException("用户不存在或已禁用");
+            }
+
             var project = await _context.Projects
                 .AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == projectId);
@@ -659,6 +765,18 @@ namespace ProjectManagementSystem.Services.Implementations
             if (project == null)
             {
                 throw new KeyNotFoundException("项目不存在");
+            }
+
+            if (currentUser.Role.Name != "管理员" && project.ManagerId != userId)
+            {
+                var isProjectMember = await _context.ProjectMembers
+                    .AsNoTracking()
+                    .AnyAsync(pm => pm.ProjectId == projectId && pm.UserId == userId);
+
+                if (!isProjectMember)
+                {
+                    throw new UnauthorizedAccessException("暂无该项目访问权限");
+                }
             }
 
             if (defaultAssigneeId.HasValue && !await _context.Users.AnyAsync(u => u.Id == defaultAssigneeId.Value))
@@ -671,9 +789,20 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new InvalidOperationException("该项目已有任务，暂不支持重复导入模板");
             }
 
+            if (templateId.HasValue && templateId.Value > 0)
+            {
+                var importedCount = await _processTemplateService.ApplyDefaultTemplateToProjectAsync(projectId, defaultAssigneeId, userId, templateId.Value);
+                if (importedCount <= 0)
+                {
+                    throw new InvalidOperationException("所选模板没有可导入步骤");
+                }
+
+                return importedCount;
+            }
+
             var now = DateTime.UtcNow;
             var baseDate = project.StartDate?.Date ?? now.Date;
-            var templateTasks = GetMicrogridTemplateTasks();
+            var templateTasks = await LoadMicrogridTemplateTasksAsync();
             var entities = templateTasks.Select((template, index) => new TaskEntity
             {
                 ProjectId = projectId,
@@ -698,6 +827,141 @@ namespace ProjectManagementSystem.Services.Implementations
             }
 
             return entities.Count;
+        }
+
+        public async Task<int> ExportMicrogridTemplateAsync(int projectId, int userId, string? templateName)
+        {
+            var currentUser = await _context.Users
+                .Include(u => u.Role)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+
+            if (currentUser == null)
+            {
+                throw new UnauthorizedAccessException("用户不存在或已禁用");
+            }
+
+            var project = await _context.Projects
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == projectId);
+
+            if (project == null)
+            {
+                throw new KeyNotFoundException("项目不存在");
+            }
+
+            if (currentUser.Role.Name != "管理员" && project.ManagerId != userId)
+            {
+                var isProjectMember = await _context.ProjectMembers
+                    .AsNoTracking()
+                    .AnyAsync(pm => pm.ProjectId == projectId && pm.UserId == userId);
+
+                if (!isProjectMember)
+                {
+                    throw new UnauthorizedAccessException("暂无该项目访问权限");
+                }
+            }
+
+            var tasks = await _context.Tasks
+                .Where(t => t.ProjectId == projectId && !t.IsDeleted)
+                .OrderBy(t => t.StartDate ?? DateTime.MaxValue)
+                .ThenBy(t => t.DueDate ?? DateTime.MaxValue)
+                .ThenBy(t => t.CreatedAt)
+                .ThenBy(t => t.Id)
+                .ToListAsync();
+
+            if (!tasks.Any())
+            {
+                throw new InvalidOperationException("当前项目暂无任务，无法导出标准工序");
+            }
+
+            var baseDate = tasks
+                .Where(t => t.StartDate.HasValue)
+                .Select(t => t.StartDate!.Value.Date)
+                .DefaultIfEmpty(DateTime.UtcNow.Date)
+                .Min();
+
+            var templateTasks = tasks.Select(task =>
+            {
+                var startDate = task.StartDate?.Date ?? baseDate;
+                var dueDate = task.DueDate?.Date ?? startDate.AddDays(1);
+                if (dueDate < startDate)
+                {
+                    dueDate = startDate;
+                }
+
+                var startOffset = (int)(startDate - baseDate).TotalDays;
+                var dueOffset = (int)(dueDate - baseDate).TotalDays;
+
+                if (startOffset < 0)
+                {
+                    startOffset = 0;
+                }
+
+                if (dueOffset < startOffset)
+                {
+                    dueOffset = startOffset;
+                }
+
+                return new MicrogridTemplateTaskDefinition
+                {
+                    Title = task.Title,
+                    Description = task.Description,
+                    Priority = task.Priority,
+                    StartOffsetDays = startOffset,
+                    DueOffsetDays = dueOffset
+                };
+            }).ToList();
+
+            var normalizedTemplateName = templateName?.Trim();
+            var processTemplateName = string.IsNullOrWhiteSpace(normalizedTemplateName)
+                ? $"{project.Name}-导出工序-{DateTime.Now:yyyyMMddHHmmss}"
+                : normalizedTemplateName;
+            var processTemplateRequest = new CreateProcessTemplateRequest
+            {
+                Name = processTemplateName,
+                Description = $"由项目“{project.Name}”任务导出，基准日期：{baseDate:yyyy-MM-dd}",
+                IsDefault = false,
+                Steps = tasks.Select((task, index) =>
+                {
+                    var startDate = task.StartDate?.Date ?? baseDate;
+                    var dueDate = task.DueDate?.Date ?? startDate;
+                    var estimatedDays = (dueDate - startDate).Days;
+                    if (estimatedDays <= 0)
+                    {
+                        estimatedDays = 1;
+                    }
+
+                    var priority = task.Priority;
+                    if (priority < 1 || priority > 4)
+                    {
+                        priority = 2;
+                    }
+
+                    return new ProcessStepRequest
+                    {
+                        SortOrder = index + 1,
+                        Stage = "导出工序",
+                        Name = task.Title,
+                        Description = task.Description,
+                        Priority = priority,
+                        DefaultAssigneeId = null,
+                        DefaultAssigneeIds = new List<int>(),
+                        EstimatedDays = estimatedDays
+                    };
+                }).ToList()
+            };
+
+            await _processTemplateService.CreateTemplateAsync(processTemplateRequest);
+
+            await SaveMicrogridTemplateTasksAsync(templateTasks);
+
+            foreach (var task in tasks)
+            {
+                await AddTaskLogAsync(task.Id, userId, "导出标准工序", null, task.Title);
+            }
+
+            return templateTasks.Count;
         }
 
         public async Task<TaskDto> SubmitTaskWorkAsync(int id, SubmitTaskWorkRequest request, int userId)
@@ -799,6 +1063,8 @@ namespace ProjectManagementSystem.Services.Implementations
             task.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
+            await SyncProjectStatusByTasksAsync(task.ProjectId);
+
             return await GetTaskByIdAsync(id);
         }
 
@@ -843,7 +1109,44 @@ namespace ProjectManagementSystem.Services.Implementations
                 await ActivateNextTaskAsync(task, userId, false);
             }
 
+            await SyncProjectStatusByTasksAsync(task.ProjectId);
+
             return await GetTaskByIdAsync(id);
+        }
+
+        private async System.Threading.Tasks.Task SyncProjectStatusByTasksAsync(int projectId)
+        {
+            var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == projectId);
+            if (project == null || project.Status == 3)
+            {
+                return;
+            }
+
+            var taskStatuses = await _context.Tasks
+                .Where(t => t.ProjectId == projectId && !t.IsDeleted)
+                .Select(t => t.Status)
+                .ToListAsync();
+
+            if (!taskStatuses.Any())
+            {
+                return;
+            }
+
+            var hasStarted = taskStatuses.Any(status => status == 1 || status == 2);
+            var allCompleted = taskStatuses.All(status => status == 2);
+
+            var targetStatus = allCompleted
+                ? 2
+                : (hasStarted ? 1 : 0);
+
+            if (project.Status == targetStatus)
+            {
+                return;
+            }
+
+            project.Status = targetStatus;
+            project.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
         }
 
         private async System.Threading.Tasks.Task ActivateNextTaskAsync(TaskEntity currentTask, int operatorUserId, bool adjustSchedule)
@@ -964,31 +1267,97 @@ namespace ProjectManagementSystem.Services.Implementations
             await _context.SaveChangesAsync();
         }
 
-        private static List<(string Title, string Description, int Priority, int StartOffsetDays, int DueOffsetDays)> GetMicrogridTemplateTasks()
+        private async System.Threading.Tasks.Task<List<MicrogridTemplateTaskDefinition>> LoadMicrogridTemplateTasksAsync()
         {
-            return new List<(string, string, int, int, int)>
+            var filePath = GetMicrogridTemplateFilePath();
+            if (!System.IO.File.Exists(filePath))
             {
-                ("售前需求澄清", "梳理业主目标、边界条件与关键约束", 3, 0, 3),
-                ("现场踏勘与负荷调研", "采集负荷曲线、用能结构与接入条件", 4, 1, 7),
-                ("方案初设与容量配置", "完成光储柴/充电负荷的容量组合建议", 4, 4, 12),
-                ("经济性测算与投资回报", "形成CAPEX/OPEX与收益测算模型", 3, 6, 14),
-                ("投标技术文件编制", "输出技术方案、实施计划和交付清单", 3, 10, 18),
-                ("合同技术条款确认", "确认范围、接口、验收标准和违约条款", 4, 15, 20),
-                ("项目启动与里程碑发布", "建立RACI、风险台账、主计划", 3, 20, 23),
-                ("初步设计评审", "完成一次系统、通讯架构和保护方案评审", 4, 22, 30),
-                ("施工图与BOM冻结", "冻结施工图纸、材料清单和采购需求", 4, 28, 38),
-                ("关键设备采购下单", "完成核心设备选型、下单与交付计划", 4, 35, 45),
-                ("工厂FAT测试", "组织储能PCS、EMS等关键设备工厂验收", 3, 42, 50),
-                ("现场土建与基础施工", "完成设备基础、线缆通道和防雷接地", 3, 45, 58),
-                ("设备安装与接线", "完成一次设备、二次设备安装与接线", 4, 55, 68),
-                ("系统联调与保护定值", "完成EMS联调、保护整定与故障演练", 4, 66, 75),
-                ("并网/并离网切换测试", "验证并网、孤岛、黑启动等关键场景", 4, 72, 80),
-                ("试运行与性能考核", "按合同指标完成试运行及性能验证", 4, 78, 90),
-                ("问题整改闭环", "汇总缺陷清单并完成整改销项", 3, 86, 94),
-                ("竣工资料与培训移交", "提交竣工文档并完成业主运维培训", 3, 92, 98),
-                ("最终验收与结算", "完成最终验收签字、结算与回款节点", 4, 96, 103),
-                ("项目复盘与运维交接", "沉淀经验教训并转入运维阶段", 2, 102, 108)
+                return GetDefaultMicrogridTemplateTasks();
+            }
+
+            try
+            {
+                var json = await System.IO.File.ReadAllTextAsync(filePath);
+                var list = JsonSerializer.Deserialize<List<MicrogridTemplateTaskDefinition>>(json);
+                if (list == null || list.Count == 0)
+                {
+                    return GetDefaultMicrogridTemplateTasks();
+                }
+
+                return list
+                    .Where(item => !string.IsNullOrWhiteSpace(item.Title))
+                    .Select(item => new MicrogridTemplateTaskDefinition
+                    {
+                        Title = item.Title.Trim(),
+                        Description = item.Description,
+                        Priority = item.Priority,
+                        StartOffsetDays = item.StartOffsetDays,
+                        DueOffsetDays = item.DueOffsetDays
+                    })
+                    .ToList();
+            }
+            catch
+            {
+                return GetDefaultMicrogridTemplateTasks();
+            }
+        }
+
+        private async System.Threading.Tasks.Task SaveMicrogridTemplateTasksAsync(List<MicrogridTemplateTaskDefinition> tasks)
+        {
+            var filePath = GetMicrogridTemplateFilePath();
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var json = JsonSerializer.Serialize(tasks, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+
+            await System.IO.File.WriteAllTextAsync(filePath, json);
+        }
+
+        private string GetMicrogridTemplateFilePath()
+        {
+            return Path.Combine(_environment.ContentRootPath, "Data", "microgrid-template.json");
+        }
+
+        private static List<MicrogridTemplateTaskDefinition> GetDefaultMicrogridTemplateTasks()
+        {
+            return new List<MicrogridTemplateTaskDefinition>
+            {
+                new() { Title = "售前需求澄清", Description = "梳理业主目标、边界条件与关键约束", Priority = 3, StartOffsetDays = 0, DueOffsetDays = 3 },
+                new() { Title = "现场踏勘与负荷调研", Description = "采集负荷曲线、用能结构与接入条件", Priority = 4, StartOffsetDays = 1, DueOffsetDays = 7 },
+                new() { Title = "方案初设与容量配置", Description = "完成光储柴/充电负荷的容量组合建议", Priority = 4, StartOffsetDays = 4, DueOffsetDays = 12 },
+                new() { Title = "经济性测算与投资回报", Description = "形成CAPEX/OPEX与收益测算模型", Priority = 3, StartOffsetDays = 6, DueOffsetDays = 14 },
+                new() { Title = "投标技术文件编制", Description = "输出技术方案、实施计划和交付清单", Priority = 3, StartOffsetDays = 10, DueOffsetDays = 18 },
+                new() { Title = "合同技术条款确认", Description = "确认范围、接口、验收标准和违约条款", Priority = 4, StartOffsetDays = 15, DueOffsetDays = 20 },
+                new() { Title = "项目启动与里程碑发布", Description = "建立RACI、风险台账、主计划", Priority = 3, StartOffsetDays = 20, DueOffsetDays = 23 },
+                new() { Title = "初步设计评审", Description = "完成一次系统、通讯架构和保护方案评审", Priority = 4, StartOffsetDays = 22, DueOffsetDays = 30 },
+                new() { Title = "施工图与BOM冻结", Description = "冻结施工图纸、材料清单和采购需求", Priority = 4, StartOffsetDays = 28, DueOffsetDays = 38 },
+                new() { Title = "关键设备采购下单", Description = "完成核心设备选型、下单与交付计划", Priority = 4, StartOffsetDays = 35, DueOffsetDays = 45 },
+                new() { Title = "工厂FAT测试", Description = "组织储能PCS、EMS等关键设备工厂验收", Priority = 3, StartOffsetDays = 42, DueOffsetDays = 50 },
+                new() { Title = "现场土建与基础施工", Description = "完成设备基础、线缆通道和防雷接地", Priority = 3, StartOffsetDays = 45, DueOffsetDays = 58 },
+                new() { Title = "设备安装与接线", Description = "完成一次设备、二次设备安装与接线", Priority = 4, StartOffsetDays = 55, DueOffsetDays = 68 },
+                new() { Title = "系统联调与保护定值", Description = "完成EMS联调、保护整定与故障演练", Priority = 4, StartOffsetDays = 66, DueOffsetDays = 75 },
+                new() { Title = "并网/并离网切换测试", Description = "验证并网、孤岛、黑启动等关键场景", Priority = 4, StartOffsetDays = 72, DueOffsetDays = 80 },
+                new() { Title = "试运行与性能考核", Description = "按合同指标完成试运行及性能验证", Priority = 4, StartOffsetDays = 78, DueOffsetDays = 90 },
+                new() { Title = "问题整改闭环", Description = "汇总缺陷清单并完成整改销项", Priority = 3, StartOffsetDays = 86, DueOffsetDays = 94 },
+                new() { Title = "竣工资料与培训移交", Description = "提交竣工文档并完成业主运维培训", Priority = 3, StartOffsetDays = 92, DueOffsetDays = 98 },
+                new() { Title = "最终验收与结算", Description = "完成最终验收签字、结算与回款节点", Priority = 4, StartOffsetDays = 96, DueOffsetDays = 103 },
+                new() { Title = "项目复盘与运维交接", Description = "沉淀经验教训并转入运维阶段", Priority = 2, StartOffsetDays = 102, DueOffsetDays = 108 }
             };
+        }
+
+        private sealed class MicrogridTemplateTaskDefinition
+        {
+            public string Title { get; set; } = string.Empty;
+            public string? Description { get; set; }
+            public int Priority { get; set; } = 1;
+            public int StartOffsetDays { get; set; }
+            public int DueOffsetDays { get; set; }
         }
 
         private async System.Threading.Tasks.Task AddTaskLogAsync(int taskId, int userId, string action, string? oldValue, string? newValue)

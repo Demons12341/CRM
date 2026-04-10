@@ -88,12 +88,31 @@ namespace ProjectManagementSystem.Controllers
         {
             try
             {
+                var userId = GetCurrentUserId();
+                var canEdit = await _projectService.CanUserEditProjectAsync(id, userId);
+                if (!canEdit)
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "仅项目负责人或管理员可编辑项目"
+                    });
+                }
+
                 var data = await _projectService.UpdateProjectAsync(id, request);
                 return Ok(new ApiResponse<ProjectDto>
                 {
                     Success = true,
                     Data = data,
                     Message = "更新成功"
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
                 });
             }
             catch (KeyNotFoundException ex)
@@ -135,6 +154,14 @@ namespace ProjectManagementSystem.Controllers
                     Message = ex.Message
                 });
             }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
         }
 
         [HttpGet("{projectId}/members")]
@@ -153,12 +180,31 @@ namespace ProjectManagementSystem.Controllers
         {
             try
             {
+                var userId = GetCurrentUserId();
+                var canManage = await _projectService.CanUserManageProjectMembersAsync(projectId, userId);
+                if (!canManage)
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "暂无项目成员管理权限"
+                    });
+                }
+
                 var data = await _projectService.AddProjectMemberAsync(projectId, request);
                 return Ok(new ApiResponse<ProjectMemberDto>
                 {
                     Success = true,
                     Data = data,
                     Message = "添加成员成功"
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
                 });
             }
             catch (KeyNotFoundException ex)
@@ -184,11 +230,30 @@ namespace ProjectManagementSystem.Controllers
         {
             try
             {
+                var currentUserId = GetCurrentUserId();
+                var canManage = await _projectService.CanUserManageProjectMembersAsync(projectId, currentUserId);
+                if (!canManage)
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "暂无项目成员管理权限"
+                    });
+                }
+
                 await _projectService.RemoveProjectMemberAsync(projectId, userId);
                 return Ok(new ApiResponse<object>
                 {
                     Success = true,
                     Message = "移除成员成功"
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
                 });
             }
             catch (KeyNotFoundException ex)

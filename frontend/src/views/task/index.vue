@@ -5,10 +5,13 @@
         <div class="card-header">
           <span>任务列表</span>
           <div class="header-actions">
-            <el-button @click="importMicrogridTemplate">
+            <el-button :disabled="!canOperateTemplateActions" @click="importMicrogridTemplate">
               导入微电网标准工序
             </el-button>
-            <el-button type="primary" @click="showCreateDialog">
+            <el-button :disabled="!canOperateTemplateActions" @click="exportMicrogridTemplate">
+              导出微电网标准工序
+            </el-button>
+            <el-button type="primary" :disabled="!canCreateTask" @click="showCreateDialog">
               <el-icon>
                 <Plus />
               </el-icon>
@@ -18,106 +21,145 @@
         </div>
       </template>
 
-      <div class="search-bar">
-        <el-input v-model="searchForm.keyword" placeholder="搜索任务名称" clearable style="width: 200px;"
-          @keyup.enter="handleSearch" />
-        <el-select v-model="searchForm.projectId" placeholder="所属项目" clearable filterable style="width: 200px;">
-          <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
-        </el-select>
-        <el-select v-model="searchForm.status" placeholder="任务状态" clearable style="width: 150px;">
-          <el-option label="待办" :value="0" />
-          <el-option label="进行中" :value="1" />
-          <el-option label="已完成" :value="2" />
-          <el-option label="已取消" :value="3" />
-        </el-select>
-        <el-button type="primary" @click="handleSearch">搜索</el-button>
-        <el-button @click="resetSearch">重置</el-button>
-        <el-button type="success"
-          :disabled="!selectedTask || !canOperateTask(selectedTask) || selectedTask.status !== 0"
-          @click="updateSelectedTaskStatus(1)">
-          开始
-        </el-button>
-        <el-button type="success"
-          :disabled="!selectedTask || !canOperateTask(selectedTask) || selectedTask.status === 2 || selectedTask.status === 3"
-          @click="updateSelectedTaskStatus(2)">
-          完成
-        </el-button>
-        <el-button type="warning" :disabled="!selectedTask || !canClaimTask(selectedTask)" @click="claimSelectedTask">
-          认领任务
-        </el-button>
-        <el-button type="primary" :disabled="!selectedTask || !canOperateTask(selectedTask)" @click="openDueDateDialog">
-          修改预计截止日期
-        </el-button>
-      </div>
+      <div class="explorer-layout">
+        <aside class="left-tree-panel">
+          <div class="panel-title">
+            <span>项目目录</span>
+            <el-input v-model="projectSearchKeyword" size="small" clearable placeholder="搜索项目"
+              class="project-search-input" />
+          </div>
+          <el-tree v-if="filteredProjectTreeData.length" :data="filteredProjectTreeData" node-key="id"
+            :current-node-key="searchForm.projectId" :expand-on-click-node="false" highlight-current default-expand-all
+            @node-click="handleProjectNodeClick">
+            <template #default="{ data }">
+              <span class="project-tree-node">
+                <span class="project-tree-name" :title="data.name">{{ data.name }}</span>
+                <span class="project-tree-meta">
+                  <span class="project-tree-badge" :class="data.statusClass">{{ data.statusName }}</span>
+                  <span v-if="data.projectOverdue" class="project-tree-badge danger">项目超期</span>
+                  <span v-if="data.taskOverdue" class="project-tree-badge danger">任务超期</span>
+                </span>
+              </span>
+            </template>
+          </el-tree>
+          <el-empty v-else description="暂无项目" :image-size="60" />
+        </aside>
 
-      <el-table ref="taskTableRef" :data="tasks" style="width: 100%;" v-loading="loading" :fit="true"
-        @selection-change="handleSelectionChange" @row-click="handleRowClick">
-        <el-table-column type="selection" width="50" />
-        <el-table-column prop="title" label="任务名称" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">
-            <el-link type="primary" @click="viewTask(row.id)">
-              {{ row.title }}
-            </el-link>
-          </template>
-        </el-table-column>
-        <el-table-column prop="projectName" label="所属项目" min-width="110" show-overflow-tooltip />
-        <el-table-column label="责任人" min-width="130" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ row.assigneeDisplay || row.assigneeName || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="priority" label="优先级" min-width="80">
-          <template #default="{ row }">
-            <el-tag :type="getPriorityType(row.priority)" size="small">
-              {{ getPriorityName(row.priority) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" min-width="90">
-          <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)">
-              {{ getStatusName(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="startDate" label="预计开始时间" min-width="110">
-          <template #default="{ row }">
-            {{ formatDate(row.startDate) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="dueDate" label="预计截止日期" min-width="110">
-          <template #default="{ row }">
-            <span :class="{ 'overdue': row.isOverdue }">{{ formatDate(row.dueDate) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
-          <template #default="{ row }">
-            <div class="action-inline">
-              <el-button type="primary" link @click="viewTask(row.id)">查看</el-button>
-              <el-button v-if="canClaimTask(row)" type="warning" link @click="claimTask(row)">认领</el-button>
-              <el-button type="primary" link @click="editTask(row)">编辑</el-button>
-              <el-popconfirm title="确定要删除这个任务吗？" @confirm="deleteTask(row.id)">
-                <template #reference>
-                  <el-button type="danger" link>删除</el-button>
-                </template>
-              </el-popconfirm>
+        <main class="right-content-panel">
+          <div class="search-bar">
+            <el-input v-model="searchForm.keyword" placeholder="搜索任务名称" clearable style="width: 200px;"
+              @keyup.enter="handleSearch" />
+            <el-select v-model="searchForm.status" placeholder="任务状态" clearable style="width: 150px;">
+              <el-option label="待办" :value="0" />
+              <el-option label="进行中" :value="1" />
+              <el-option label="已完成" :value="2" />
+              <el-option label="已取消" :value="3" />
+            </el-select>
+            <el-button type="primary" @click="handleSearch">搜索</el-button>
+            <el-button @click="resetSearch">重置</el-button>
+            <el-button type="success"
+              :disabled="!selectedTask || !canOperateTask(selectedTask) || selectedTask.status !== 0"
+              @click="updateSelectedTaskStatus(1)">
+              开始
+            </el-button>
+            <el-button type="success"
+              :disabled="!selectedTask || !canOperateTask(selectedTask) || selectedTask.status === 2 || selectedTask.status === 3"
+              @click="updateSelectedTaskStatus(2)">
+              完成
+            </el-button>
+            <el-button type="warning" :disabled="!selectedTask || !canClaimTask(selectedTask)" @click="claimSelectedTask">
+              认领任务
+            </el-button>
+            <el-button type="primary" :disabled="!selectedTask || !canOperateTask(selectedTask)" @click="openDueDateDialog">
+              修改预计截止日期
+            </el-button>
+          </div>
+
+          <div class="content-area">
+            <div v-if="searchForm.projectId">
+              <el-table ref="taskTableRef" :data="tasks" style="width: 100%;" v-loading="loading" :fit="true"
+                @selection-change="handleSelectionChange" @row-click="handleRowClick">
+                <el-table-column type="selection" width="50" />
+                <el-table-column prop="title" label="任务名称" min-width="160" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <el-link type="primary" @click="viewTask(row.id)">
+                      {{ row.title }}
+                    </el-link>
+                  </template>
+                </el-table-column>
+                <el-table-column label="所属项目  (负责人)" min-width="160" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    {{ getProjectDisplayName(row) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="责任人" min-width="130" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    {{ row.assigneeDisplay || row.assigneeName || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="priority" label="优先级" min-width="80">
+                  <template #default="{ row }">
+                    <el-tag :type="getPriorityType(row.priority)" size="small">
+                      {{ getPriorityName(row.priority) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="status" label="状态" min-width="90">
+                  <template #default="{ row }">
+                    <el-tag :type="getStatusType(row.status)">
+                      {{ getStatusName(row.status) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="startDate" label="预计开始时间" min-width="110">
+                  <template #default="{ row }">
+                    {{ formatDate(row.startDate) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="dueDate" label="预计截止日期" min-width="110">
+                  <template #default="{ row }">
+                    <span :class="{ 'overdue': row.isOverdue }">{{ formatDate(row.dueDate) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="completedAt" label="实际结束时间" min-width="110">
+                  <template #default="{ row }">
+                    <span :class="{ 'completed-late': isCompletedLate(row) }">{{ formatDate(row.completedAt) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="230" fixed="right">
+                  <template #default="{ row }">
+                    <div class="action-inline">
+                      <el-button type="primary" link @click="viewTask(row.id)">查看</el-button>
+                      <el-button v-if="canClaimTask(row)" type="warning" link @click="claimTask(row)">认领</el-button>
+                      <el-button type="primary" link @click="editTask(row)">编辑</el-button>
+                      <el-popconfirm title="确定要删除这个任务吗？" @confirm="deleteTask(row.id)">
+                        <template #reference>
+                          <el-button type="danger" link>删除</el-button>
+                        </template>
+                      </el-popconfirm>
+                    </div>
+                  </template>
+                </el-table-column>
+              </el-table>
             </div>
-          </template>
-        </el-table-column>
-      </el-table>
+            <el-empty v-else description="请先在左侧选择项目" />
+          </div>
 
-      <div class="pagination">
-        <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]" :total="pagination.total" layout="total, sizes, prev, pager, next, jumper"
-          @size-change="handleSizeChange" @current-change="handleCurrentChange" />
+          <div class="pagination">
+            <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.pageSize"
+              :page-sizes="[10, 20, 50, 100]" :total="pagination.total" layout="total, sizes, prev, pager, next, jumper"
+              @size-change="handleSizeChange" @current-change="handleCurrentChange" />
+          </div>
+        </main>
       </div>
     </el-card>
 
     <!-- 创建/编辑任务对话框 -->
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑任务' : '新建任务'" width="600px">
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="100px">
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px">
         <el-form-item label="所属项目" prop="projectId">
-          <el-select v-model="form.projectId" placeholder="请选择项目" filterable @change="() => (form.assigneeIds = [])">
+          <el-input v-if="!isEdit && searchForm.projectId" :model-value="selectedProjectNameForCreate" disabled />
+          <el-select v-else v-model="form.projectId" placeholder="请选择项目" filterable @change="() => (form.assigneeIds = [])">
             <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
           </el-select>
         </el-form-item>
@@ -129,7 +171,7 @@
         </el-form-item>
         <el-form-item label="责任人" prop="assigneeIds">
           <el-select v-model="form.assigneeIds" placeholder="请选择责任人（可多选）" filterable clearable multiple collapse-tags
-            collapse-tags-tooltip>
+            :max-collapse-tags="3" collapse-tags-tooltip>
             <el-option v-for="user in users" :key="user.id" :label="getUserLabel(user)" :value="user.id" />
           </el-select>
         </el-form-item>
@@ -148,10 +190,16 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="dueDateDialogVisible" title="修改预计截止日期" width="420px">
+    <el-dialog v-model="dueDateDialogVisible" :title="claimDueDateRequired ? '认领任务并设置时间' : '修改预计截止日期'" width="420px"
+      :show-close="!claimDueDateRequired" :close-on-click-modal="!claimDueDateRequired"
+      :close-on-press-escape="!claimDueDateRequired">
       <el-form label-width="100px">
         <el-form-item label="任务名称">
           <div>{{ selectedTask?.title || '-' }}</div>
+        </el-form-item>
+        <el-form-item v-if="claimDueDateRequired" label="预计开始时间">
+          <el-date-picker v-model="claimStartDate" type="date" value-format="YYYY-MM-DD" disabled
+            style="width: 220px" />
         </el-form-item>
         <el-form-item label="预计截止日期">
           <el-date-picker v-model="dueDateForm.dueDate" type="date" value-format="YYYY-MM-DD" placeholder="请选择预计截止日期"
@@ -159,15 +207,73 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dueDateDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitSelectedTaskDueDate">提交</el-button>
+        <el-button v-if="!claimDueDateRequired" @click="dueDateDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitSelectedTaskDueDate">{{ claimDueDateRequired ? '提交并认领' : '提交'
+        }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="importTemplateDialogVisible" title="导入微电网标准工序" width="480px">
+      <el-form label-width="110px">
+        <el-form-item label="目标项目">
+          <div>{{ selectedImportProjectName || '-' }}</div>
+        </el-form-item>
+        <el-form-item label="任务模板">
+          <el-select v-model="selectedImportTemplateId" placeholder="请选择要导入的模板" filterable style="width: 100%">
+            <el-option v-for="template in processTemplates" :key="template.id"
+              :label="template.isDefault ? `${template.name}（默认）` : template.name" :value="template.id">
+              <div class="template-option-row">
+                <span class="template-option-name">{{ template.isDefault ? `${template.name}（默认）` : template.name
+                }}</span>
+                <el-button link type="primary" @click.stop.prevent="openTemplatePreview(template)">预览</el-button>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="importTemplateDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitImportMicrogridTemplate">确认导入</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="templatePreviewDialogVisible" :title="`模板预览：${selectedPreviewTemplate?.name || ''}`"
+      width="760px">
+      <el-table :data="previewTemplateSteps" max-height="420" style="width: 100%">
+        <el-table-column label="序号" width="70">
+          <template #default="{ $index }">{{ $index + 1 }}</template>
+        </el-table-column>
+        <el-table-column prop="stage" label="阶段" width="140" show-overflow-tooltip />
+        <el-table-column prop="name" label="工序名称" min-width="240" show-overflow-tooltip />
+        <el-table-column label="优先级" width="100">
+          <template #default="{ row }">{{ getPriorityName(row.priority) }}</template>
+        </el-table-column>
+        <el-table-column prop="estimatedDays" label="预计工期(天)" width="130" />
+      </el-table>
+      <template #footer>
+        <el-button type="primary" @click="templatePreviewDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="exportTemplateDialogVisible" title="导出微电网标准工序" width="460px">
+      <el-form label-width="110px">
+        <el-form-item label="目标项目">
+          <div>{{ selectedExportProjectName || '-' }}</div>
+        </el-form-item>
+        <el-form-item label="模板名称">
+          <el-input v-model="exportTemplateForm.templateName" placeholder="请输入导出模板名称" maxlength="100" show-word-limit />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="exportTemplateDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitExportMicrogridTemplate">确认导出</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules, TableInstance } from 'element-plus'
@@ -192,17 +298,35 @@ const currentUser = ref<any>(null)
 const originalEditForm = ref<any | null>(null)
 const selectedTask = ref<any | null>(null)
 const dueDateDialogVisible = ref(false)
+const claimDueDateRequired = ref(false)
+const claimStartDate = ref('')
+const importTemplateDialogVisible = ref(false)
+const selectedImportTemplateId = ref<number | undefined>(undefined)
+const selectedImportProjectName = ref('')
+const templatePreviewDialogVisible = ref(false)
+const selectedPreviewTemplate = ref<any | null>(null)
+const exportTemplateDialogVisible = ref(false)
+const selectedExportProjectName = ref('')
+const projectSearchKeyword = ref('')
+const projectAccessDenied = ref(false)
+const overdueTaskProjectIds = ref<Set<number>>(new Set())
+const pendingFocusTaskId = ref<number | null>(null)
 const SHARED_FOLDER_PROJECT_NAME = '共享文件夹'
 
 const dueDateForm = reactive({
   dueDate: ''
 })
 
+const exportTemplateForm = reactive({
+  templateName: ''
+})
+
 const searchForm = reactive({
   keyword: '',
   projectId: undefined as number | undefined,
   status: undefined as number | undefined,
-  overdueOnly: false
+  overdueOnly: false,
+  myOpenScope: false
 })
 
 const pagination = reactive({
@@ -226,14 +350,214 @@ const formRules: FormRules = {
   ],
   title: [
     { required: true, message: '请输入任务名称', trigger: 'blur' }
+  ],
+  startDate: [
+    { required: true, message: '请选择预计开始时间', trigger: 'change' }
+  ],
+  dueDate: [
+    { required: true, message: '请选择预计截止日期', trigger: 'change' },
+    {
+      validator: (_rule: any, value: string, callback: any) => {
+        if (!value || !form.startDate) {
+          callback()
+          return
+        }
+
+        if (dayjs(value).isBefore(dayjs(form.startDate), 'day')) {
+          callback(new Error('预计截止日期不能早于预计开始时间'))
+          return
+        }
+
+        callback()
+      },
+      trigger: 'change'
+    }
   ]
 }
+
+const processTemplates = ref<any[]>([])
+const previewTemplateSteps = computed(() => {
+  const steps = selectedPreviewTemplate.value?.steps || []
+  return [...steps].sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0))
+})
+
+const selectedProjectNameForCreate = computed(() => {
+  const target = projects.value.find((item: any) => Number(item.id) === Number(searchForm.projectId))
+  return target?.name || '-'
+})
+
+const canCreateTask = computed(() => {
+  return !!searchForm.projectId && !projectAccessDenied.value
+})
+
+const canOperateTemplateActions = computed(() => {
+  return !!searchForm.projectId && !projectAccessDenied.value
+})
+
+const getProjectStatusName = (project: any) => {
+  const fromApi = `${project?.statusName || ''}`.trim()
+  if (fromApi) {
+    return fromApi
+  }
+
+  const statusMap: Record<number, string> = {
+    0: '规划中',
+    1: '进行中',
+    2: '已完成',
+    3: '已暂停'
+  }
+
+  return statusMap[Number(project?.status)] || '未知'
+}
+
+const isProjectOverdue = (project: any) => {
+  if (!project?.endDate) {
+    return false
+  }
+
+  const status = Number(project?.status)
+  if (status === 2 || status === 3) {
+    return false
+  }
+
+  return dayjs().isAfter(dayjs(project.endDate).endOf('day'))
+}
+
+const buildProjectStatusSummary = (project: any) => {
+  const statusName = getProjectStatusName(project)
+  const hasTaskOverdue = overdueTaskProjectIds.value.has(Number(project?.id))
+  const hasProjectOverdue = isProjectOverdue(project)
+
+  const statusClassMap: Record<string, string> = {
+    '规划中': 'planning',
+    '进行中': 'active',
+    '已完成': 'done',
+    '已暂停': 'paused'
+  }
+
+  return {
+    statusName,
+    statusClass: statusClassMap[statusName] || 'planning',
+    projectOverdue: hasProjectOverdue,
+    taskOverdue: hasTaskOverdue
+  }
+}
+
+const filteredProjectTreeData = computed(() => {
+  const keyword = `${projectSearchKeyword.value || ''}`.trim().toLowerCase()
+  const source = projects.value || []
+
+  const matched = keyword
+    ? source.filter((item: any) => `${item?.name || ''}`.toLowerCase().includes(keyword))
+    : source
+
+  return matched.map((item: any) => {
+    const statusMeta = buildProjectStatusSummary(item)
+    return {
+      id: item.id,
+      label: item.name,
+      name: item.name,
+      statusName: statusMeta.statusName,
+      statusClass: statusMeta.statusClass,
+      projectOverdue: statusMeta.projectOverdue,
+      taskOverdue: statusMeta.taskOverdue
+    }
+  })
+})
 
 const getUserLabel = (user: any) => {
   return user.realName ? `${user.realName} (${user.username})` : user.username
 }
 
+const getProjectDisplayName = (row: any) => {
+  const projectName = row?.projectName || '-'
+  const project = projects.value.find((item: any) => Number(item.id) === Number(row?.projectId))
+  const managerName = project?.managerName
+
+  if (!managerName) {
+    return projectName
+  }
+
+  return `${projectName}（${managerName}）`
+}
+
+const getApiErrorMessage = (error: any, fallback: string) => {
+  const responseData = error?.response?.data
+
+  if (responseData?.errors && typeof responseData.errors === 'object') {
+    const firstFieldErrors: string[] = []
+    for (const current of Object.values(responseData.errors) as any[]) {
+      if (!Array.isArray(current)) {
+        continue
+      }
+
+      for (const item of current) {
+        if (typeof item === 'string') {
+          firstFieldErrors.push(item)
+        }
+      }
+    }
+
+    if (firstFieldErrors.length > 0) {
+      return firstFieldErrors[0]
+    }
+  }
+
+  if (responseData?.message) {
+    return responseData.message
+  }
+
+  return fallback
+}
+
+const syncListRouteQuery = (options?: { focusTaskId?: number | null }) => {
+  const nextQuery: Record<string, any> = {
+    ...route.query
+  }
+
+  if (searchForm.projectId) {
+    nextQuery.projectId = String(searchForm.projectId)
+  } else {
+    delete nextQuery.projectId
+  }
+
+  if (searchForm.overdueOnly) {
+    nextQuery.overdueOnly = 'true'
+  } else {
+    delete nextQuery.overdueOnly
+  }
+
+  if (searchForm.myOpenScope) {
+    nextQuery.myOpenScope = 'true'
+  } else {
+    delete nextQuery.myOpenScope
+  }
+
+  if (options && Object.prototype.hasOwnProperty.call(options, 'focusTaskId')) {
+    const nextFocusTaskId = Number(options.focusTaskId || 0)
+    if (nextFocusTaskId > 0) {
+      nextQuery.focusTaskId = String(nextFocusTaskId)
+    } else {
+      delete nextQuery.focusTaskId
+    }
+  }
+
+  router.replace({
+    path: '/tasks',
+    query: nextQuery
+  })
+}
+
 const fetchTasks = async () => {
+  if (!searchForm.projectId) {
+    tasks.value = []
+    pagination.total = 0
+    selectedTask.value = null
+    taskTableRef.value?.clearSelection()
+    projectAccessDenied.value = false
+    return
+  }
+
   loading.value = true
   try {
     const params: any = {
@@ -244,13 +568,36 @@ const fetchTasks = async () => {
     if (searchForm.projectId) params.projectId = searchForm.projectId
     if (searchForm.status !== undefined) params.status = searchForm.status
     if (searchForm.overdueOnly) params.overdueOnly = true
+    if (searchForm.myOpenScope) params.myOpenScope = true
 
-    const res = await request.get('/tasks', { params })
+    const res = await request.get('/tasks', { params, headers: { 'X-Silent-Error': '1' } })
     tasks.value = res.data.items || []
     selectedTask.value = null
     taskTableRef.value?.clearSelection()
     pagination.total = res.data.totalCount
+    projectAccessDenied.value = false
+
+    const focusTaskIdFromRoute = Number(route.query.focusTaskId)
+    const focusTaskId = pendingFocusTaskId.value || (focusTaskIdFromRoute > 0 ? focusTaskIdFromRoute : null)
+    if (focusTaskId) {
+      const targetTask = tasks.value.find((item: any) => Number(item.id) === focusTaskId)
+      if (targetTask) {
+        await nextTick()
+        taskTableRef.value?.toggleRowSelection(targetTask, true)
+        selectedTask.value = targetTask
+      }
+
+      pendingFocusTaskId.value = null
+      syncListRouteQuery({ focusTaskId: null })
+    }
   } catch (error) {
+    tasks.value = []
+    pagination.total = 0
+    selectedTask.value = null
+    taskTableRef.value?.clearSelection()
+    const statusCode = (error as any)?.response?.status
+    projectAccessDenied.value = statusCode === 403
+    ElMessage.warning(getApiErrorMessage(error, '获取任务列表失败，请稍后重试'))
     console.error('获取任务列表失败：', error)
   } finally {
     loading.value = false
@@ -262,6 +609,8 @@ const fetchProjects = async () => {
     const res = await request.get('/projects', { params: { pageSize: 200 } })
     const items = Array.isArray(res.data.items) ? res.data.items : []
     projects.value = items.filter((project: any) => `${project?.name || ''}`.trim() !== SHARED_FOLDER_PROJECT_NAME)
+
+    await fetchOverdueProjectFlags()
 
     if (searchForm.projectId && !projects.value.some((project: any) => project.id === searchForm.projectId)) {
       searchForm.projectId = undefined
@@ -275,6 +624,51 @@ const fetchProjects = async () => {
   }
 }
 
+const fetchOverdueProjectFlags = async () => {
+  if (!projects.value.length) {
+    overdueTaskProjectIds.value = new Set<number>()
+    return
+  }
+
+  try {
+    const overdueIds = new Set<number>()
+    const validProjectIdSet = new Set<number>(projects.value.map((project: any) => Number(project.id)))
+
+    const pageSize = 200
+    let page = 1
+    let totalPages = 1
+
+    while (page <= totalPages) {
+      const res = await request.get('/tasks', {
+        params: {
+          page,
+          pageSize,
+          overdueOnly: true
+        },
+        headers: { 'X-Silent-Error': '1' }
+      })
+
+      const items = Array.isArray(res.data.items) ? res.data.items : []
+      const fetchedTotalPages = Number(res.data.totalPages || 1)
+      totalPages = fetchedTotalPages > 0 ? fetchedTotalPages : 1
+
+      for (const item of items) {
+        const projectId = Number(item?.projectId)
+        if (projectId > 0 && validProjectIdSet.has(projectId)) {
+          overdueIds.add(projectId)
+        }
+      }
+
+      page += 1
+    }
+
+    overdueTaskProjectIds.value = overdueIds
+  } catch (error) {
+    overdueTaskProjectIds.value = new Set<number>()
+    console.error('获取项目超期任务标记失败：', error)
+  }
+}
+
 const fetchUsers = async () => {
   try {
     const res = await request.get('/users', { params: { page: 1, pageSize: 200, isActive: true } })
@@ -284,16 +678,41 @@ const fetchUsers = async () => {
   }
 }
 
+const fetchProcessTemplates = async () => {
+  try {
+    const res = await request.get('/process-templates')
+    processTemplates.value = res.data || []
+  } catch (error) {
+    console.error('获取项目任务模板失败：', error)
+  }
+}
+
+const handleProjectNodeClick = (node: any) => {
+  const nextProjectId = Number(node?.id || 0)
+  if (!nextProjectId) {
+    return
+  }
+
+  if (Number(searchForm.projectId) === nextProjectId) {
+    return
+  }
+
+  searchForm.projectId = nextProjectId
+  selectedTask.value = null
+  handleSearch()
+}
+
 const handleSearch = () => {
   pagination.page = 1
+  syncListRouteQuery({ focusTaskId: null })
   fetchTasks()
 }
 
 const resetSearch = () => {
   searchForm.keyword = ''
-  searchForm.projectId = undefined
   searchForm.status = undefined
   searchForm.overdueOnly = false
+  searchForm.myOpenScope = false
   handleSearch()
 }
 
@@ -308,10 +727,23 @@ const handleCurrentChange = (val: number) => {
 }
 
 const showCreateDialog = () => {
+  if (!searchForm.projectId) {
+    ElMessage.warning('请先在左侧选择项目')
+    return
+  }
+
+  if (projectAccessDenied.value) {
+    ElMessage.warning('暂无该项目访问权限，不能新建任务')
+    return
+  }
+
   isEdit.value = false
   editId.value = null
   originalEditForm.value = null
   resetForm()
+  if (searchForm.projectId) {
+    form.projectId = Number(searchForm.projectId)
+  }
   dialogVisible.value = true
 }
 
@@ -419,6 +851,7 @@ const handleSubmit = async () => {
         dialogVisible.value = false
         fetchTasks()
       } catch (error) {
+        ElMessage.error(getApiErrorMessage(error, '操作失败，请稍后重试'))
         console.error('操作失败：', error)
       } finally {
         submitting.value = false
@@ -444,10 +877,20 @@ const deleteTask = async (id: number) => {
 }
 
 const claimTask = async (row: any) => {
+  const isFirstClaim = !row?.assigneeId
+  if (isFirstClaim) {
+    selectedTask.value = row
+    claimStartDate.value = dayjs().format('YYYY-MM-DD')
+    dueDateForm.dueDate = row?.dueDate || ''
+    claimDueDateRequired.value = true
+    dueDateDialogVisible.value = true
+    return
+  }
+
   try {
-    await request.put(`/tasks/${row.id}/claim`)
+    await request.put(`/tasks/${row.id}/claim`, {})
     ElMessage.success('任务认领成功')
-    fetchTasks()
+    await fetchTasks()
   } catch (error) {
     const message = (error as any)?.response?.data?.message || '任务认领失败'
     ElMessage.warning(message)
@@ -479,7 +922,13 @@ const quickUpdateStatus = async (id: number, status: number) => {
       ElMessage.warning('请先填写并提交工作内容')
       router.push({
         path: `/tasks/${id}`,
-        query: { needWorkContent: 'true' }
+        query: {
+          needWorkContent: 'true',
+          projectId: searchForm.projectId ? String(searchForm.projectId) : undefined,
+          overdueOnly: searchForm.overdueOnly ? 'true' : undefined,
+          myOpenScope: searchForm.myOpenScope ? 'true' : undefined,
+          focusTaskId: String(id)
+        }
       })
       return
     }
@@ -544,6 +993,8 @@ const openDueDateDialog = () => {
     return
   }
 
+  claimDueDateRequired.value = false
+  claimStartDate.value = ''
   dueDateForm.dueDate = selectedTask.value.dueDate || ''
   dueDateDialogVisible.value = true
 }
@@ -554,7 +1005,7 @@ const submitSelectedTaskDueDate = async () => {
     return
   }
 
-  if (!canOperateTask(selectedTask.value)) {
+  if (!claimDueDateRequired.value && !canOperateTask(selectedTask.value)) {
     ElMessage.warning('项目成员仅可修改自己负责的任务')
     return
   }
@@ -566,18 +1017,27 @@ const submitSelectedTaskDueDate = async () => {
 
   const nextDueDate = dueDateForm.dueDate
   const currentDueDate = selectedTask.value.dueDate || null
-  if (nextDueDate === currentDueDate) {
+  if (!claimDueDateRequired.value && nextDueDate === currentDueDate) {
     ElMessage.warning('预计截止时间未变化')
     return
   }
 
   try {
-    await request.put(`/tasks/${selectedTask.value.id}`, { dueDate: nextDueDate })
-    ElMessage.success('预计截止时间已更新')
+    if (claimDueDateRequired.value) {
+      await request.put(`/tasks/${selectedTask.value.id}/claim`, { dueDate: nextDueDate })
+      ElMessage.success('任务认领成功')
+    } else {
+      await request.put(`/tasks/${selectedTask.value.id}`, { dueDate: nextDueDate })
+      ElMessage.success('预计截止时间已更新')
+    }
     dueDateDialogVisible.value = false
-    fetchTasks()
+    claimDueDateRequired.value = false
+    claimStartDate.value = ''
+    await fetchTasks()
   } catch (error) {
-    console.error('更新预计截止时间失败：', error)
+    const message = (error as any)?.response?.data?.message || (claimDueDateRequired.value ? '任务认领失败' : '更新预计截止时间失败')
+    ElMessage.warning(message)
+    console.error('提交失败：', error)
   }
 }
 
@@ -587,17 +1047,96 @@ const importMicrogridTemplate = async () => {
     return
   }
 
+  const targetProject = projects.value.find((item: any) => Number(item.id) === Number(searchForm.projectId))
+  selectedImportProjectName.value = targetProject?.name || ''
+
+  if (!processTemplates.value.length) {
+    await fetchProcessTemplates()
+  }
+
+  if (!processTemplates.value.length) {
+    ElMessage.warning('暂无可导入的任务模板')
+    return
+  }
+
+  const defaultTemplate = processTemplates.value.find((item: any) => item.isDefault)
+  selectedImportTemplateId.value = defaultTemplate?.id ?? processTemplates.value[0]?.id
+  importTemplateDialogVisible.value = true
+}
+
+const openTemplatePreview = (template: any) => {
+  selectedPreviewTemplate.value = template
+  templatePreviewDialogVisible.value = true
+}
+
+const submitImportMicrogridTemplate = async () => {
+  if (!searchForm.projectId) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+
+  if (!selectedImportTemplateId.value) {
+    ElMessage.warning('请选择要导入的模板')
+    return
+  }
+
   try {
-    await request.post(`/projects/${searchForm.projectId}/tasks/microgrid-template`, {})
+    await request.post(`/projects/${searchForm.projectId}/tasks/microgrid-template`, {
+      templateId: selectedImportTemplateId.value
+    })
     ElMessage.success('微电网标准工序导入成功')
+    importTemplateDialogVisible.value = false
     fetchTasks()
   } catch (error) {
     console.error('导入模板失败：', error)
   }
 }
 
+const exportMicrogridTemplate = async () => {
+  if (!searchForm.projectId) {
+    ElMessage.warning('请先在筛选区选择要导出模板的项目')
+    return
+  }
+
+  const targetProject = projects.value.find((item: any) => Number(item.id) === Number(searchForm.projectId))
+  selectedExportProjectName.value = targetProject?.name || ''
+  exportTemplateForm.templateName = `${selectedExportProjectName.value || '项目'}-导出工序-${dayjs().format('YYYYMMDDHHmmss')}`
+  exportTemplateDialogVisible.value = true
+}
+
+const submitExportMicrogridTemplate = async () => {
+  if (!searchForm.projectId) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+
+  const templateName = `${exportTemplateForm.templateName || ''}`.trim()
+  if (!templateName) {
+    ElMessage.warning('请输入模板名称')
+    return
+  }
+
+  try {
+    const res = await request.post(`/projects/${searchForm.projectId}/tasks/microgrid-template/export`, {
+      templateName
+    })
+    ElMessage.success(res.message || '微电网标准工序导出成功')
+    exportTemplateDialogVisible.value = false
+  } catch (error) {
+    console.error('导出模板失败：', error)
+  }
+}
+
 const viewTask = (id: number) => {
-  router.push(`/tasks/${id}`)
+  router.push({
+    path: `/tasks/${id}`,
+    query: {
+      projectId: searchForm.projectId ? String(searchForm.projectId) : undefined,
+      overdueOnly: searchForm.overdueOnly ? 'true' : undefined,
+      myOpenScope: searchForm.myOpenScope ? 'true' : undefined,
+      focusTaskId: String(id)
+    }
+  })
 }
 
 const getPriorityType = (priority: number) => {
@@ -645,27 +1184,168 @@ const formatDate = (date: string) => {
   return dayjs(date).format('YYYY-MM-DD')
 }
 
-onMounted(() => {
+const isCompletedLate = (row: any) => {
+  if (!row || row.status !== 2) return false
+  if (!row.completedAt || !row.dueDate) return false
+  return dayjs(row.completedAt).isAfter(dayjs(row.dueDate))
+}
+
+onMounted(async () => {
   const userStr = localStorage.getItem('user')
   if (userStr) {
     currentUser.value = JSON.parse(userStr)
   }
 
   searchForm.overdueOnly = route.query.overdueOnly === 'true'
+  searchForm.myOpenScope = route.query.myOpenScope === 'true'
   const queryProjectId = Number(route.query.projectId)
+  const queryFocusTaskId = Number(route.query.focusTaskId)
   if (!Number.isNaN(queryProjectId) && queryProjectId > 0) {
     searchForm.projectId = queryProjectId
   }
+  if (!Number.isNaN(queryFocusTaskId) && queryFocusTaskId > 0) {
+    pendingFocusTaskId.value = queryFocusTaskId
+  }
 
-  fetchTasks()
-  fetchProjects()
+  await fetchProjects()
+  if (!searchForm.projectId && projects.value.length > 0) {
+    searchForm.projectId = projects.value[0].id
+  }
+  syncListRouteQuery({ focusTaskId: pendingFocusTaskId.value })
+  await fetchTasks()
   fetchUsers()
+  fetchProcessTemplates()
 })
 </script>
 
 <style scoped>
 .task-page {
   padding: 10px;
+  min-height: calc(100vh - 120px);
+  display: flex;
+}
+
+.task-page :deep(.el-card) {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-page :deep(.el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.explorer-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.left-tree-panel {
+  width: 240px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--el-fill-color-extra-light);
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 8px;
+}
+
+.project-search-input {
+  width: 130px;
+}
+
+.left-tree-panel :deep(.el-tree) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.left-tree-panel :deep(.el-tree-node__content) {
+  height: auto;
+  min-height: 34px;
+  align-items: flex-start;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.project-tree-node {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: calc(100% - 24px);
+  padding-right: 6px;
+}
+
+.project-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.project-tree-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.project-tree-badge {
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+}
+
+.project-tree-badge.planning {
+  color: var(--el-text-color-secondary);
+}
+
+.project-tree-badge.active {
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+
+.project-tree-badge.done {
+  color: var(--el-color-success);
+  background: var(--el-color-success-light-9);
+}
+
+.project-tree-badge.paused {
+  color: var(--el-color-warning);
+  background: var(--el-color-warning-light-9);
+}
+
+.project-tree-badge.danger {
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+}
+
+.right-content-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 260px);
 }
 
 .card-header {
@@ -686,13 +1366,25 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
+.content-area {
+  flex: 1;
+  min-height: 0;
+}
+
 .pagination {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+  margin-top: auto;
+  padding: 12px 0;
+  background: var(--el-bg-color);
 }
 
 .overdue {
+  color: #f56c6c;
+}
+
+.completed-late {
   color: #f56c6c;
 }
 
@@ -710,5 +1402,19 @@ onMounted(() => {
 
 .action-inline :deep(.el-button:last-child) {
   margin-right: 0;
+}
+
+.template-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.template-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 12px;
 }
 </style>

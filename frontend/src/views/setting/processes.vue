@@ -90,21 +90,6 @@
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="默认负责人" width="240">
-          <template #default="{ row }">
-            <el-select
-              v-model="row.defaultAssigneeIds"
-              multiple
-              collapse-tags
-              collapse-tags-tooltip
-              clearable
-              filterable
-              placeholder="可多选，可后续调整"
-            >
-              <el-option v-for="u in users" :key="u.id" :label="getUserLabel(u)" :value="u.id" />
-            </el-select>
-          </template>
-        </el-table-column>
         <el-table-column label="预计工期(天)" width="170">
           <template #default="{ row }">
             <el-input-number
@@ -143,7 +128,6 @@ const editId = ref<number | null>(null)
 const draggingStepIndex = ref<number | null>(null)
 
 const templates = ref<any[]>([])
-const users = ref<any[]>([])
 
 const form = ref<any>({
   name: '',
@@ -162,19 +146,6 @@ const fetchTemplates = async () => {
   } finally {
     loading.value = false
   }
-}
-
-const fetchUsers = async () => {
-  try {
-    const res = await request.get('/users', { params: { page: 1, pageSize: 200, isActive: true } })
-    users.value = res.data.items || []
-  } catch (error) {
-    console.error('获取用户失败：', error)
-  }
-}
-
-const getUserLabel = (user: any) => {
-  return user.realName ? `${user.realName} (${user.username})` : user.username
 }
 
 const openCreateDialog = () => {
@@ -202,9 +173,6 @@ const editTemplate = (row: any) => {
       name: s.name,
       description: s.description,
       priority: s.priority,
-        defaultAssigneeIds: (s.defaultAssigneeIds && s.defaultAssigneeIds.length)
-          ? [...s.defaultAssigneeIds]
-          : (s.defaultAssigneeId ? [s.defaultAssigneeId] : []),
       estimatedDays: s.estimatedDays
     }))
   }
@@ -218,7 +186,6 @@ const addStep = () => {
     name: '',
     description: '',
     priority: 2,
-    defaultAssigneeIds: [] as number[],
     estimatedDays: 3
   })
 }
@@ -290,11 +257,6 @@ const saveTemplate = async () => {
     return
   }
 
-  if (!form.value.steps.length) {
-    ElMessage.warning('至少保留一个工序步骤')
-    return
-  }
-
   const payload = {
     name: form.value.name,
     description: form.value.description,
@@ -305,7 +267,6 @@ const saveTemplate = async () => {
       name: s.name,
       description: s.description,
       priority: s.priority,
-      defaultAssigneeIds: s.defaultAssigneeIds || [],
       estimatedDays: s.estimatedDays
     }))
   }
@@ -350,7 +311,6 @@ const setDefault = async (id: number) => {
 
 onMounted(() => {
   fetchTemplates()
-  fetchUsers()
 })
 </script>
 

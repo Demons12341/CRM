@@ -3,8 +3,13 @@
     <el-card class="explorer-card">
       <template #header>
         <div class="card-header">
-          <span class="header-title">文件资源管理器</span>
-          <span class="header-tip">“共享文件夹”项目支持全员查看与编辑全部文件</span>
+          <div class="header-main-row">
+            <span class="header-title">文件资源管理器</span>
+            <div class="header-tip-stack">
+              <div class="header-tip-bar header-tip-bar-primary">共享文件夹：全员可查看，可右键设置私密</div>
+              <span class="header-tip">其余项目：本人上传的文件可右击共享给项目成员</span>
+            </div>
+          </div>
         </div>
       </template>
 
@@ -54,11 +59,8 @@
             </div>
             <div v-else class="path-bar recycle-hint">当前为回收站视图（保留 7 天，可恢复）</div>
             <div class="toolbar-actions">
-              <el-button class="recycle-toggle-btn" size="small" :disabled="!searchForm.projectId" @click="toggleRecycleMode">
+              <el-button class="recycle-toggle-btn" size="small" @click="toggleRecycleMode">
                 {{ recycleMode ? '返回文件列表' : '回收站' }}
-              </el-button>
-              <el-button size="small" :disabled="!searchForm.projectId || !currentFolderId" @click="goToRootFolder">
-                回到根目录
               </el-button>
               <el-button v-if="!recycleMode" type="success" size="small" :disabled="!searchForm.projectId"
                 @click="openCreateFolderDialog">
@@ -72,17 +74,12 @@
                 @click="handleBulkDelete">
                 批量删除
               </el-button>
-              <el-button v-else type="success" size="small" :disabled="!selectedCount"
-                @click="handleBulkRestore">
-                批量恢复
-              </el-button>
-              <el-button v-if="recycleMode" type="danger" size="small" :disabled="!selectedCount"
-                @click="handleBulkPermanentDelete">
-                彻底删除
+              <el-button v-else type="danger" size="small" :disabled="!selectedCount" @click="handleBulkPermanentDelete">
+                批量彻底删除
               </el-button>
               <el-upload v-if="!recycleMode" :action="uploadUrl" :headers="uploadHeaders" :data="uploadData"
-                :before-upload="beforeUpload"
-                :on-success="handleUploadSuccess" :on-error="handleUploadError" :on-progress="handleUploadProgress" :show-file-list="false">
+                :before-upload="beforeUpload" :on-success="handleUploadSuccess" :on-error="handleUploadError"
+                :on-progress="handleUploadProgress" :show-file-list="false">
                 <el-button type="primary">
                   <el-icon>
                     <Upload />
@@ -101,25 +98,35 @@
             <el-progress :percentage="uploadProgress" :stroke-width="8" />
           </div>
 
+          <div v-if="downloading" class="upload-progress">
+            <div class="upload-progress-meta">
+              <span class="upload-progress-name">正在下载：{{ downloadFileName || '文件' }}</span>
+              <span class="upload-progress-value">
+                {{ downloadProgressKnown ? `${downloadProgress}%` : `${downloadLoadedText} / 计算总大小中...` }}
+              </span>
+            </div>
+            <el-progress :percentage="downloadProgressKnown ? downloadProgress : 100"
+              :indeterminate="!downloadProgressKnown" :stroke-width="8" />
+          </div>
+
           <div class="search-bar">
-            <el-input v-model="searchForm.keyword" :placeholder="recycleMode ? '搜索回收站文件名' : '搜索当前项目文件名'" clearable style="width: 240px;"
-              @keyup.enter="handleSearch" />
+            <el-input v-model="searchForm.keyword" :placeholder="recycleMode ? '搜索回收站文件名' : '搜索当前项目文件名'" clearable
+              style="width: 240px;" @keyup.enter="handleSearch" />
             <el-button type="primary" @click="handleSearch">搜索</el-button>
             <el-button @click="resetSearch">重置</el-button>
           </div>
 
           <div class="content-area">
-            <div v-if="searchForm.projectId" v-loading="loading" class="icon-view">
+            <div v-if="recycleMode || searchForm.projectId" v-loading="loading" class="icon-view">
               <div v-if="files.length" class="icon-grid">
                 <div v-for="file in files" :key="file.id" class="icon-card"
-                  :class="{ 'drop-target-active': dragOverFolderId === file.id && file.isFolder, 'folder-card': file.isFolder, 'is-selected': isSelected(file) }"
+                  :class="{ 'drop-target-active': dragOverFolderId === file.id && file.isFolder, 'folder-card': file.isFolder, 'is-selected': isSelected(file), 'recycle-card': recycleMode, 'search-card': !recycleMode && !!searchForm.keyword }"
                   :draggable="!recycleMode" @click="handleCardClick(file)" @dragstart="handleDragStart(file, $event)"
                   @dragend="handleDragEnd" @dragover.prevent="handleDragOver(file, $event)"
                   @dragleave="handleDragLeave(file)" @drop.prevent="handleDropToFolder(file)"
                   @contextmenu.prevent="openEntryContextMenu(file, $event)">
-                  <el-checkbox v-if="isSelectable(file)" class="icon-select"
-                    :model-value="isSelected(file)" @change="(value: boolean) => handleSelectionChange(file, value)"
-                    @click.stop />
+                  <el-checkbox v-if="isSelectable(file)" class="icon-select" :model-value="isSelected(file)"
+                    @change="handleSelectionChange(file, Boolean($event))" @click.stop />
                   <div class="icon-card-main">
                     <div class="thumb-box">
                       <div v-if="file.isFolder" class="folder-thumb">
@@ -134,12 +141,28 @@
                     </div>
                     <div class="icon-name" :title="file.fileName">{{ file.fileName }}</div>
                     <div class="icon-meta">
-                      {{ recycleMode ? `删除时间：${formatDeletedAt(file.deletedAt)}` : (file.isFolder ? '文件夹' : formatFileSize(file.fileSize)) }}
+                      {{ recycleMode ? `删除时间：${formatDeletedAt(file.deletedAt)}` : (file.isFolder ? '文件夹' :
+                        formatFileSize(file.fileSize)) }}
+                    </div>
+                    <div v-if="!recycleMode && !file.isFolder" class="icon-flag-row">
+                      <el-tag v-if="isSharedFolderProject && !file.isShared" type="warning" size="small">私密</el-tag>
+                      <el-tag v-else-if="!isSharedFolderProject && file.isShared" type="success"
+                        size="small">已共享</el-tag>
                     </div>
                     <div class="icon-uploader" :title="file.uploaderName || '-'">上传人：{{ file.uploaderName || '-' }}
                     </div>
                     <div class="icon-uploader" :title="formatUploadedAt(file.uploadedAt)">
                       上传时间：{{ formatUploadedAt(file.uploadedAt) }}
+                    </div>
+                    <div v-if="recycleMode" class="icon-uploader" :title="file.projectName || '-'">
+                      所属项目：{{ file.projectName || '-' }}
+                    </div>
+                    <div v-if="!recycleMode && searchForm.keyword && !file.isFolder" class="icon-uploader"
+                      :title="file.locationPath || '项目根目录'">
+                      所在目录：
+                      <el-link type="primary" @click.stop="goToFileLocation(file)">
+                        {{ file.locationPath || '项目根目录' }}
+                      </el-link>
                     </div>
                     <div v-if="recycleMode && getRemainingDays(file.deletedAt) > 0" class="icon-uploader">
                       剩余恢复天数：{{ getRemainingDays(file.deletedAt) }}
@@ -147,12 +170,16 @@
                   </div>
                   <div class="icon-actions">
                     <template v-if="recycleMode">
-                      <el-button class="action-btn action-restore" type="success" link size="small" @click.stop="restoreEntry(file)">恢复</el-button>
-                      <el-button class="action-btn action-permanent" type="danger" link size="small" @click.stop="permanentlyDeleteEntry(file)">彻底删除</el-button>
+                      <el-button class="action-btn action-restore" type="success" link size="small"
+                        @click.stop="restoreEntry(file)">恢复</el-button>
+                      <el-button class="action-btn action-permanent" type="danger" link size="small"
+                        @click.stop="permanentlyDeleteEntry(file)">彻底删除</el-button>
                     </template>
                     <template v-else-if="!file.isFolder">
-                      <el-button class="action-btn action-preview" type="primary" link size="small" @click.stop="openPreview(file)">预览</el-button>
-                      <el-button class="action-btn action-download" type="primary" link size="small" @click.stop="downloadFile(file)">下载</el-button>
+                      <el-button class="action-btn action-preview" type="primary" link size="small"
+                        @click.stop="openPreview(file)">预览</el-button>
+                      <el-button class="action-btn action-download" type="primary" link size="small"
+                        @click.stop="downloadFile(file)">下载</el-button>
                     </template>
                   </div>
                 </div>
@@ -161,7 +188,7 @@
                 <el-empty :description="recycleMode ? '回收站暂无内容' : '当前目录暂无内容'" />
               </div>
             </div>
-            <el-empty v-else description="请先在左侧选择项目" />
+            <el-empty v-else description="请先在左侧选择项目，或直接进入回收站" />
           </div>
 
           <el-dialog v-model="previewVisible" :title="previewTitle" width="70%" destroy-on-close @closed="closePreview">
@@ -192,6 +219,20 @@
           <div v-if="entryContextMenu.visible && !recycleMode" class="folder-context-menu"
             :style="{ left: `${entryContextMenu.x}px`, top: `${entryContextMenu.y}px` }" @click.stop>
             <div class="context-item" @click="handleRenameEntry">重命名</div>
+            <div v-if="canShareEntry(entryContextMenu.entry)" class="context-item" @click="handleShareEntry">{{
+              getShareActionText() }}</div>
+            <div v-if="canMakePrivateEntry(entryContextMenu.entry)" class="context-item"
+              @click="handleMakePrivateEntry">{{
+                getPrivateActionText() }}
+            </div>
+            <div v-if="canRestoreManagerVisible(entryContextMenu.entry)" class="context-item"
+              @click="handleRestoreManagerVisibleEntry">
+              恢复仅管理员/项目负责人可见
+            </div>
+            <div v-if="canRestoreSharedInSharedFolder(entryContextMenu.entry)" class="context-item"
+              @click="handleRestoreSharedEntry">
+              恢复共享
+            </div>
             <div class="context-item danger" @click="handleDeleteEntry">删除</div>
           </div>
         </main>
@@ -245,7 +286,37 @@ const SHARED_FOLDER_PROJECT_NAME = '共享文件夹'
 const uploadProgress = ref(0)
 const uploading = ref(false)
 const uploadFileName = ref('')
+const downloading = ref(false)
+const downloadFileName = ref('')
+const downloadProgress = ref(0)
+const downloadProgressKnown = ref(true)
+const downloadLoadedText = ref('0 B')
 const selectedFileIds = ref<number[]>([])
+const currentUser = ref<any>(null)
+
+const withSilentError = (config: any = {}) => ({
+  ...config,
+  headers: {
+    ...(config?.headers || {}),
+    'X-Silent-Error': '1'
+  }
+})
+
+const getErrorMessage = (error: any, fallback: string) => {
+  return error?.response?.data?.message || error?.response?.data?.title || fallback
+}
+
+const notifyPermissionOrError = (error: any, fallback: string) => {
+  const status = Number(error?.response?.status)
+  const message = getErrorMessage(error, fallback)
+
+  if (status === 403) {
+    ElMessage.warning(message || '暂无访问权限')
+    return
+  }
+
+  ElMessage.error(message || fallback)
+}
 
 const normalizeProjectId = (project: any) => {
   const id = Number(project?.id)
@@ -310,6 +381,82 @@ const currentProjectName = computed(() => {
   const current = projects.value.find((p: any) => normalizeProjectId(p) === searchForm.projectId)
   return getProjectName(current)
 })
+
+const isSharedFolderProject = computed(() => currentProjectName.value === SHARED_FOLDER_PROJECT_NAME)
+
+const getCurrentUserId = () => {
+  const id = Number(currentUser.value?.id)
+  return Number.isFinite(id) ? id : 0
+}
+
+const isEntryOwner = (entry: any) => {
+  if (!entry) {
+    return false
+  }
+
+  const currentUserId = getCurrentUserId()
+  return currentUserId > 0 && Number(entry.uploadedBy) === currentUserId
+}
+
+const canShareEntry = (entry: any) => {
+  if (!entry || entry.isFolder || isSharedFolderProject.value) {
+    return false
+  }
+
+  if (!isEntryOwner(entry)) {
+    return false
+  }
+
+  return !entry.isShared
+}
+
+const canMakePrivateEntry = (entry: any) => {
+  if (!entry || entry.isFolder) {
+    return false
+  }
+
+  if (!isEntryOwner(entry)) {
+    return false
+  }
+
+  if (isSharedFolderProject.value) {
+    return !!entry.isShared
+  }
+
+  return false
+}
+
+const canRestoreManagerVisible = (entry: any) => {
+  if (!entry || entry.isFolder || isSharedFolderProject.value) {
+    return false
+  }
+
+  if (!isEntryOwner(entry)) {
+    return false
+  }
+
+  return !!entry.isShared
+}
+
+const canRestoreSharedInSharedFolder = (entry: any) => {
+  if (!entry || entry.isFolder || !isSharedFolderProject.value) {
+    return false
+  }
+
+  if (!isEntryOwner(entry)) {
+    return false
+  }
+
+  return !entry.isShared
+}
+
+const getShareActionText = () => {
+  return '共享给项目成员'
+}
+
+const getPrivateActionText = () => {
+  return '设为私密'
+}
 
 const selectedCount = computed(() => selectedFileIds.value.length)
 
@@ -385,7 +532,7 @@ const deleteFilesByIds = async (ids: number[]) => {
   }
 
   const results = await Promise.allSettled(
-    ids.map(id => request.delete(`/files/${id}`))
+    ids.map(id => request.delete(`/files/${id}`, withSilentError()))
   )
 
   const failedCount = results.filter(result => result.status === 'rejected').length
@@ -393,15 +540,15 @@ const deleteFilesByIds = async (ids: number[]) => {
 }
 
 const fetchFiles = async () => {
+  if (recycleMode.value) {
+    return fetchRecycleBinFiles()
+  }
+
   if (!searchForm.projectId) {
     files.value = []
     cleanupThumbnailUrls([])
     selectedFileIds.value = []
     return true
-  }
-
-  if (recycleMode.value) {
-    return fetchRecycleBinFiles()
   }
 
   loading.value = true
@@ -409,15 +556,22 @@ const fetchFiles = async () => {
     const params: any = {
       parentId: currentFolderId.value
     }
-    if (searchForm.keyword) params.keyword = searchForm.keyword
+    if (searchForm.keyword) {
+      params.keyword = searchForm.keyword
+      params.recursive = true
+    }
 
-    const res = await request.get(`/projects/${searchForm.projectId}/files`, { params })
+    const res = await request.get(`/projects/${searchForm.projectId}/files`, withSilentError({ params }))
     files.value = res.data.items
     reconcileSelection(files.value)
     refreshImageThumbnails(files.value)
     return true
   } catch (error) {
     console.error('获取文件列表失败：', error)
+    notifyPermissionOrError(error, '获取文件列表失败')
+    files.value = []
+    cleanupThumbnailUrls([])
+    selectedFileIds.value = []
     return false
   } finally {
     loading.value = false
@@ -425,26 +579,105 @@ const fetchFiles = async () => {
 }
 
 const fetchRecycleBinFiles = async () => {
-  if (!searchForm.projectId) {
-    files.value = []
-    cleanupThumbnailUrls([])
-    selectedFileIds.value = []
-    return true
-  }
-
   loading.value = true
   try {
     const params: any = {}
     if (searchForm.keyword) params.keyword = searchForm.keyword
 
-    const res = await request.get(`/projects/${searchForm.projectId}/files/recycle-bin`, { params })
-    files.value = res.data.items
-    selectedFileIds.value = []
-    cleanupThumbnailUrls([])
-    return true
-  } catch (error) {
-    console.error('获取回收站列表失败：', error)
-    return false
+    const token = localStorage.getItem('token')
+    const globalResponse = await axios.get('/api/files/recycle-bin', {
+      params,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined
+    })
+
+    if (globalResponse?.data?.success) {
+      const items = Array.isArray(globalResponse?.data?.data?.items) ? globalResponse.data.data.items : []
+      files.value = items
+      selectedFileIds.value = []
+      cleanupThumbnailUrls([])
+      return true
+    }
+
+    throw new Error(globalResponse?.data?.message || '获取回收站列表失败')
+  } catch (globalError) {
+    console.warn('全局回收站接口不可用，已切换到项目聚合模式：', globalError)
+
+    try {
+      const token = localStorage.getItem('token')
+      selectedFileIds.value = []
+      const projectIdNameMap = new Map<number, string>()
+      const projectIds = projects.value
+        .map((project: any) => {
+          const id = normalizeProjectId(project)
+          const name = getProjectName(project)
+          if (id > 0) {
+            projectIdNameMap.set(id, name || '-')
+          }
+          return id
+        })
+        .filter((id: number) => id > 0)
+
+      if (!projectIds.length) {
+        throw globalError
+      }
+
+      const params: any = {}
+      if (searchForm.keyword) params.keyword = searchForm.keyword
+
+      const results = await Promise.allSettled(
+        projectIds.map(projectId =>
+          axios.get(`/api/projects/${projectId}/files/recycle-bin`, {
+            params,
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined
+          })
+        )
+      )
+
+      const mergedItems = results
+        .flatMap((result: any) => {
+          if (result?.status !== 'fulfilled') {
+            return []
+          }
+
+          const payload = result.value?.data
+          const items = payload?.success && Array.isArray(payload?.data?.items) ? payload.data.items : []
+          return items.map((item: any) => {
+            const projectId = Number(item?.projectId)
+            return {
+              ...item,
+              projectName: item?.projectName || projectIdNameMap.get(projectId) || '-'
+            }
+          })
+        })
+        .sort((left: any, right: any) => {
+          const leftDeleted = new Date(left?.deletedAt || 0).getTime()
+          const rightDeleted = new Date(right?.deletedAt || 0).getTime()
+          if (rightDeleted !== leftDeleted) {
+            return rightDeleted - leftDeleted
+          }
+
+          const leftUploaded = new Date(left?.uploadedAt || 0).getTime()
+          const rightUploaded = new Date(right?.uploadedAt || 0).getTime()
+          return rightUploaded - leftUploaded
+        })
+
+      files.value = mergedItems
+      selectedFileIds.value = []
+      cleanupThumbnailUrls([])
+
+      if (!mergedItems.length) {
+        const hasSuccessResult = results.some((result: any) => result?.status === 'fulfilled' && result?.value?.data?.success)
+        if (!hasSuccessResult) {
+          throw globalError
+        }
+      }
+
+      return true
+    } catch (fallbackError) {
+      console.error('获取回收站列表失败：', fallbackError)
+      notifyPermissionOrError(fallbackError, '获取回收站列表失败')
+      return false
+    }
   } finally {
     loading.value = false
   }
@@ -452,7 +685,7 @@ const fetchRecycleBinFiles = async () => {
 
 const fetchProjects = async () => {
   try {
-    const res = await request.get('/projects', { params: { pageSize: 200 } })
+    const res = await request.get('/projects', withSilentError({ params: { pageSize: 200 } }))
     const items = Array.isArray(res.data.items) ? [...res.data.items] : []
     items.sort((left: any, right: any) => {
       const leftIsShared = getProjectName(left) === SHARED_FOLDER_PROJECT_NAME
@@ -470,6 +703,7 @@ const fetchProjects = async () => {
     }
   } catch (error) {
     console.error('获取项目列表失败：', error)
+    notifyPermissionOrError(error, '获取项目列表失败')
   }
 }
 
@@ -532,7 +766,8 @@ const goToPathFolder = (index: number) => {
   }
 
   folderPath.value = folderPath.value.slice(0, index + 1)
-  currentFolderId.value = target.id
+  const targetId = Number(target.id)
+  currentFolderId.value = Number.isFinite(targetId) && targetId > 0 ? targetId : undefined
   fetchFiles()
 }
 
@@ -617,7 +852,7 @@ const handleRenameEntry = async () => {
       return
     }
 
-    await request.put(`/files/${entry.id}/rename`, { name })
+    await request.put(`/files/${entry.id}/rename`, { name }, withSilentError())
 
     if (currentFolderId.value === entry.id) {
       const current = folderPath.value[folderPath.value.length - 1]
@@ -638,8 +873,7 @@ const handleRenameEntry = async () => {
     if (error === 'cancel') {
       return
     }
-    const msg = error?.response?.data?.message || '重命名失败'
-    ElMessage.error(msg)
+    notifyPermissionOrError(error, '重命名失败')
   }
 }
 
@@ -660,8 +894,80 @@ const handleDeleteEntry = async () => {
       cancelButtonText: '取消'
     })
 
-    await deleteFile(entry.id)
+    await deleteFile(entry)
   } catch (error) {
+  }
+}
+
+const handleShareEntry = async () => {
+  const entry = entryContextMenu.entry
+  if (!canShareEntry(entry)) {
+    closeEntryContextMenu()
+    return
+  }
+
+  closeEntryContextMenu()
+
+  try {
+    await request.put(`/files/${entry.id}/share`, undefined, withSilentError())
+    ElMessage.success('共享成功')
+    fetchFiles()
+  } catch (error: any) {
+    notifyPermissionOrError(error, '共享失败')
+  }
+}
+
+const handleMakePrivateEntry = async () => {
+  const entry = entryContextMenu.entry
+  if (!canMakePrivateEntry(entry)) {
+    closeEntryContextMenu()
+    return
+  }
+
+  closeEntryContextMenu()
+
+  try {
+    await request.put(`/files/${entry.id}/private`, undefined, withSilentError())
+    ElMessage.success(isSharedFolderProject.value ? '已设为私密' : '已取消共享')
+    fetchFiles()
+  } catch (error: any) {
+    notifyPermissionOrError(error, '设置私密失败')
+  }
+}
+
+const handleRestoreManagerVisibleEntry = async () => {
+  const entry = entryContextMenu.entry
+  if (!canRestoreManagerVisible(entry)) {
+    closeEntryContextMenu()
+    return
+  }
+
+  closeEntryContextMenu()
+
+  try {
+    await request.put(`/files/${entry.id}/private`, undefined, withSilentError())
+    ElMessage.success('已恢复为仅管理员/项目负责人可见')
+    fetchFiles()
+  } catch (error: any) {
+    notifyPermissionOrError(error, '恢复失败')
+  }
+}
+
+const handleRestoreSharedEntry = async () => {
+  const entry = entryContextMenu.entry
+  if (!canRestoreSharedInSharedFolder(entry)) {
+    closeEntryContextMenu()
+    return
+  }
+
+  closeEntryContextMenu()
+
+  try {
+    await request.put(`/files/${entry.id}/share`, undefined, withSilentError())
+    ElMessage.success('已恢复共享')
+    fetchFiles()
+  } catch (error: any) {
+    notifyPermissionOrError(error, '恢复共享失败')
   }
 }
 
@@ -729,12 +1035,11 @@ const moveFileToFolder = async (targetFolder: any) => {
   try {
     await request.put(`/files/${movingEntry.id}/move`, {
       targetFolderId: targetFolder?.id ?? null
-    })
+    }, withSilentError())
     ElMessage.success(targetFolder?.id ? `已移动到文件夹：${targetFolder.fileName}` : '已移动到项目根目录')
     fetchFiles()
   } catch (error: any) {
-    const msg = error?.response?.data?.message || '移动失败'
-    ElMessage.error(msg)
+    notifyPermissionOrError(error, '移动失败')
   }
 }
 
@@ -799,12 +1104,107 @@ const handleBreadcrumbDrop = async (folder: any) => {
 const goToParentFolder = () => {
   if (!currentFolderId.value) return
   folderPath.value.pop()
-  const parent = folderPath.value[folderPath.value.length - 1]
-  currentFolderId.value = parent?.id
+  const parent = [...folderPath.value].reverse().find(folder => Number(folder?.id) > 0)
+  currentFolderId.value = parent ? Number(parent.id) : undefined
   fetchFiles()
 }
 
+const buildFolderPathFromLocation = (locationPath: string | undefined, targetFolderId: number) => {
+  const normalized = `${locationPath || ''}`.trim()
+  if (!normalized || normalized === '项目根目录') {
+    return [{ id: targetFolderId, fileName: '当前文件夹' }]
+  }
+
+  const names = normalized
+    .split('/')
+    .map(name => name.trim())
+    .filter(Boolean)
+
+  if (!names.length) {
+    return [{ id: targetFolderId, fileName: '当前文件夹' }]
+  }
+
+  return names.map((fileName, index) => ({
+    id: index === names.length - 1 ? targetFolderId : -1,
+    fileName
+  }))
+}
+
+const resolveFolderPathFromLocation = async (projectId: number, locationPath: string | undefined, targetFolderId: number) => {
+  const normalized = `${locationPath || ''}`.trim()
+  if (!normalized || normalized === '项目根目录') {
+    return [{ id: targetFolderId, fileName: '当前文件夹' }]
+  }
+
+  const names = normalized
+    .split('/')
+    .map(name => name.trim())
+    .filter(Boolean)
+
+  if (!names.length) {
+    return [{ id: targetFolderId, fileName: '当前文件夹' }]
+  }
+
+  const resolved: Array<{ id: number, fileName: string }> = []
+  let parentId: number | undefined = undefined
+
+  for (let index = 0; index < names.length; index++) {
+    const currentName = names[index]
+    const params: any = { parentId }
+    const res = await request.get(`/projects/${projectId}/files`, withSilentError({ params }))
+    const items = Array.isArray(res?.data?.items) ? res.data.items : []
+    const folder = items.find((item: any) => item?.isFolder && item?.fileName === currentName)
+
+    if (!folder?.id) {
+      return buildFolderPathFromLocation(locationPath, targetFolderId)
+    }
+
+    const folderId = Number(folder.id)
+    resolved.push({ id: folderId, fileName: folder.fileName || currentName })
+    parentId = folderId
+  }
+
+  if (resolved.length) {
+    resolved[resolved.length - 1].id = targetFolderId
+  }
+
+  return resolved
+}
+
+const goToFileLocation = async (file: any) => {
+  if (!searchForm.projectId || recycleMode.value) {
+    return
+  }
+
+  try {
+    searchForm.keyword = ''
+
+    const targetFolderId = file?.parentId as number | undefined
+    const targetFileId = Number(file?.id)
+    if (!targetFolderId) {
+      currentFolderId.value = undefined
+      folderPath.value = []
+      await fetchFiles()
+      if (targetFileId && files.value.some(item => item.id === targetFileId)) {
+        selectedFileIds.value = [targetFileId]
+      }
+      return
+    }
+
+    folderPath.value = await resolveFolderPathFromLocation(searchForm.projectId, file?.locationPath, targetFolderId)
+    currentFolderId.value = targetFolderId
+    await fetchFiles()
+    if (targetFileId && files.value.some(item => item.id === targetFileId)) {
+      selectedFileIds.value = [targetFileId]
+    }
+  } catch (error) {
+    console.error('定位文件所在目录失败：', error)
+    ElMessage.error('定位目录失败，请稍后重试')
+  }
+}
+
 const goToRootFolder = () => {
+  if (!searchForm.projectId) return
   currentFolderId.value = undefined
   folderPath.value = []
   fetchFiles()
@@ -815,11 +1215,6 @@ const handleSearch = () => {
 }
 
 const toggleRecycleMode = () => {
-  if (!searchForm.projectId) {
-    ElMessage.warning('请先选择项目')
-    return
-  }
-
   recycleMode.value = !recycleMode.value
   searchForm.keyword = ''
   selectedFileIds.value = []
@@ -835,6 +1230,8 @@ const toggleRecycleMode = () => {
 const resetSearch = () => {
   searchForm.keyword = ''
   handleSearch()
+  selectedFileIds.value = []
+
 }
 
 const handleBulkDelete = async () => {
@@ -868,41 +1265,6 @@ const handleBulkDelete = async () => {
   }
 }
 
-const handleBulkRestore = async () => {
-  if (!selectedFileIds.value.length) {
-    return
-  }
-
-  try {
-    await ElMessageBox.confirm(`确定恢复选中的 ${selectedFileIds.value.length} 个项目吗？`, '恢复确认', {
-      type: 'warning',
-      confirmButtonText: '恢复',
-      cancelButtonText: '取消'
-    })
-
-    const results = await Promise.allSettled(
-      selectedFileIds.value.map(id => request.put(`/files/${id}/restore`))
-    )
-
-    const failedCount = results.filter(result => result.status === 'rejected').length
-    selectedFileIds.value = []
-    fetchFiles()
-
-    if (failedCount > 0) {
-      ElMessage.warning(`已恢复部分项目，失败 ${failedCount} 个`)
-      return
-    }
-
-    ElMessage.success('恢复成功')
-  } catch (error) {
-    if (error === 'cancel') {
-      return
-    }
-    console.error('批量恢复失败：', error)
-    ElMessage.error('批量恢复失败')
-  }
-}
-
 const handleBulkPermanentDelete = async () => {
   if (!selectedFileIds.value.length) {
     return
@@ -916,7 +1278,7 @@ const handleBulkPermanentDelete = async () => {
     })
 
     const results = await Promise.allSettled(
-      selectedFileIds.value.map(id => request.delete(`/files/${id}/permanent`))
+      selectedFileIds.value.map(id => request.delete(`/files/${id}/permanent`, withSilentError()))
     )
 
     const failedCount = results.filter(result => result.status === 'rejected').length
@@ -924,11 +1286,11 @@ const handleBulkPermanentDelete = async () => {
     fetchFiles()
 
     if (failedCount > 0) {
-      ElMessage.warning(`已删除部分项目，失败 ${failedCount} 个`)
+      ElMessage.warning(`已彻底删除部分项目，失败 ${failedCount} 个`)
       return
     }
 
-    ElMessage.success('彻底删除成功')
+    ElMessage.success('批量彻底删除成功')
   } catch (error) {
     if (error === 'cancel') {
       return
@@ -969,13 +1331,12 @@ const handleCreateFolder = async () => {
     await request.post(`/projects/${searchForm.projectId}/folders`, {
       parentId: currentFolderId.value,
       folderName
-    })
+    }, withSilentError())
     ElMessage.success('文件夹创建成功')
     createFolderVisible.value = false
     fetchFiles()
   } catch (error: any) {
-    const msg = error?.response?.data?.message || '文件夹创建失败'
-    ElMessage.error(msg)
+    notifyPermissionOrError(error, '文件夹创建失败')
   } finally {
     creatingFolder.value = false
   }
@@ -1144,9 +1505,9 @@ const openPreview = async (file: any) => {
         })
 
         if (ext === '.docx') {
-        const mammoth = await import('mammoth/mammoth.browser')
-        const result = await mammoth.convertToHtml({ arrayBuffer: response.data })
-        previewHtml.value = result.value || '<p>文档内容为空</p>'
+          const mammoth = await import('mammoth/mammoth.browser')
+          const result = await mammoth.convertToHtml({ arrayBuffer: response.data })
+          previewHtml.value = result.value || '<p>文档内容为空</p>'
         } else if (ext === '.xls' || ext === '.xlsx') {
           const xlsx = await import('xlsx')
           const workbook = xlsx.read(response.data, { type: 'array' })
@@ -1267,6 +1628,11 @@ const downloadFile = async (file: any) => {
     return
   }
 
+  if (downloading.value) {
+    ElMessage.warning('当前有文件正在下载，请稍后再试')
+    return
+  }
+
   try {
     const token = localStorage.getItem('token')
     if (!token) {
@@ -1274,10 +1640,30 @@ const downloadFile = async (file: any) => {
       return
     }
 
+    downloading.value = true
+    downloadFileName.value = file.fileName || '文件'
+    downloadProgress.value = 0
+    downloadProgressKnown.value = true
+    downloadLoadedText.value = '0 B'
+
     const response = await axios.get(`/api/files/${file.id}/download`, {
       responseType: 'blob',
       headers: {
         Authorization: `Bearer ${token}`
+      },
+      onDownloadProgress: (event: any) => {
+        const loaded = Number(event?.loaded || 0)
+        const total = Number(event?.total || 0)
+
+        downloadLoadedText.value = formatTransferSize(loaded)
+
+        if (total > 0) {
+          downloadProgressKnown.value = true
+          downloadProgress.value = Math.min(100, Math.round((loaded / total) * 100))
+          return
+        }
+
+        downloadProgressKnown.value = false
       }
     })
 
@@ -1296,16 +1682,28 @@ const downloadFile = async (file: any) => {
       return
     }
     ElMessage.error('下载失败，请稍后重试')
+  } finally {
+    downloading.value = false
+    downloadFileName.value = ''
+    downloadProgress.value = 0
+    downloadProgressKnown.value = true
+    downloadLoadedText.value = '0 B'
   }
 }
 
-const deleteFile = async (id: number) => {
+const deleteFile = async (entry: any) => {
+  const id = Number(entry?.id)
+  if (!Number.isFinite(id) || id <= 0) {
+    return
+  }
+
   try {
-    await request.delete(`/files/${id}`)
-    ElMessage.success('已移入回收站，可在 7 天内恢复')
+    await request.delete(`/files/${id}`, withSilentError())
+    ElMessage.success(entry?.isFolder ? '文件夹已彻底删除' : '已移入回收站，可在 7 天内恢复')
     fetchFiles()
   } catch (error) {
     console.error('删除失败：', error)
+    notifyPermissionOrError(error, '删除失败')
   }
 }
 
@@ -1315,11 +1713,40 @@ const restoreEntry = async (entry: any) => {
   }
 
   try {
-    await request.put(`/files/${entry.id}/restore`)
+    const res = await request.put(`/files/${entry.id}/restore`, undefined, withSilentError())
     ElMessage.success('恢复成功')
+
+    if (recycleMode.value && res?.data?.id) {
+      const restored = res.data
+      recycleMode.value = false
+      searchForm.projectId = Number(restored.projectId) || searchForm.projectId
+      searchForm.keyword = ''
+
+      const targetFolderId = Number(restored.parentId)
+      if (Number.isFinite(targetFolderId) && targetFolderId > 0) {
+        currentFolderId.value = targetFolderId
+        const projectId = Number(searchForm.projectId)
+        if (Number.isFinite(projectId) && projectId > 0) {
+          folderPath.value = await resolveFolderPathFromLocation(projectId, restored.locationPath, targetFolderId)
+        } else {
+          folderPath.value = buildFolderPathFromLocation(restored.locationPath, targetFolderId)
+        }
+      } else {
+        currentFolderId.value = undefined
+        folderPath.value = []
+      }
+
+      await fetchFiles()
+      if (files.value.some(item => item.id === restored.id)) {
+        selectedFileIds.value = [restored.id]
+      }
+      return
+    }
+
     fetchFiles()
   } catch (error) {
     console.error('恢复失败：', error)
+    notifyPermissionOrError(error, '恢复失败')
   }
 }
 
@@ -1337,10 +1764,13 @@ const permanentlyDeleteEntry = async (entry: any) => {
       cancelButtonText: '取消'
     })
 
-    await request.delete(`/files/${entry.id}/permanent`)
+    await request.delete(`/files/${entry.id}/permanent`, withSilentError())
     ElMessage.success('彻底删除成功')
     fetchFiles()
   } catch (error) {
+    if (error !== 'cancel') {
+      notifyPermissionOrError(error, '彻底删除失败')
+    }
   }
 }
 
@@ -1429,7 +1859,24 @@ const formatFileSize = (bytes: number) => {
   return `${size.toFixed(2)} ${units[unitIndex]}`
 }
 
+const formatTransferSize = (bytes: number) => {
+  if (bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let unitIndex = 0
+  let size = bytes
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex++
+  }
+  return `${size.toFixed(2)} ${units[unitIndex]}`
+}
+
 onMounted(() => {
+  const userStr = localStorage.getItem('user')
+  if (userStr) {
+    currentUser.value = JSON.parse(userStr)
+  }
+
   window.addEventListener('click', closeEntryContextMenu)
   fetchProjects()
 })
@@ -1444,36 +1891,91 @@ onBeforeUnmount(() => {
 <style scoped>
 .file-page {
   padding: 10px;
+  min-height: calc(100vh - 120px);
+  display: flex;
 }
 
 .explorer-card {
-  min-height: calc(100vh - 120px);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-page :deep(.el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .card-header {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 2px 0 0;
+}
+
+.header-main-row {
+  display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .header-title {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--el-text-color-primary);
+  letter-spacing: 0.2px;
 }
 
 .header-tip {
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
   color: var(--el-color-warning-dark-2);
   background: var(--el-color-warning-light-9);
   border: 1px solid var(--el-color-warning-light-5);
   border-radius: 999px;
   padding: 4px 10px;
+  line-height: 1;
   white-space: nowrap;
 }
 
+.header-tip-stack {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.header-tip-bar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+}
+
+.header-tip-bar-primary {
+  color: var(--el-color-primary-dark-2);
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary-light-5);
+}
+
 .explorer-layout {
+  flex: 1;
+  min-height: 0;
   display: flex;
   gap: 12px;
 }
@@ -1483,6 +1985,9 @@ onBeforeUnmount(() => {
   border: 1px solid var(--el-border-color-light);
   border-radius: 6px;
   padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: var(--el-fill-color-extra-light);
 }
 
@@ -1500,19 +2005,33 @@ onBeforeUnmount(() => {
   width: 130px;
 }
 
+.left-tree-panel :deep(.el-tree) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.left-tree-panel :deep(.el-tree-node__content) {
+  height: auto;
+  min-height: 34px;
+  align-items: flex-start;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
 .right-content-panel {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 260px);
+  min-height: 0;
 }
 
 .toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .toolbar-actions {
@@ -1527,7 +2046,7 @@ onBeforeUnmount(() => {
 }
 
 .upload-progress {
-  margin: 6px 0 12px;
+  margin: 4px 0 8px;
   padding: 8px 10px;
   border-radius: 6px;
   background: var(--el-fill-color-light);
@@ -1639,7 +2158,7 @@ onBeforeUnmount(() => {
 .search-bar {
   display: flex;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .file-name {
@@ -1664,7 +2183,7 @@ onBeforeUnmount(() => {
 .content-area {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .icon-view {
@@ -1697,6 +2216,14 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   position: relative;
+}
+
+.icon-card.recycle-card,
+.icon-card.search-card {
+  height: auto;
+  min-height: 188px;
+  justify-content: flex-start;
+  padding-top: 8px;
 }
 
 .icon-card.is-selected {
@@ -1743,6 +2270,11 @@ onBeforeUnmount(() => {
   justify-content: center;
   width: 100%;
   gap: 2px;
+}
+
+.icon-card.recycle-card .icon-card-main,
+.icon-card.search-card .icon-card-main {
+  gap: 4px;
 }
 
 .thumb-box {
@@ -1859,6 +2391,13 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
+.icon-flag-row {
+  min-height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .icon-uploader {
   width: 100%;
   text-align: center;
@@ -1869,6 +2408,14 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   line-height: 1.2;
   min-height: 14px;
+}
+
+.icon-card.recycle-card .icon-uploader,
+.icon-card.search-card .icon-uploader {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
 }
 
 .icon-actions {

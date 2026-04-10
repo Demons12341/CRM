@@ -10,6 +10,6 @@ namespace ProjectManagementSystem.Services.Interfaces
         Task<ProcessTemplateDto> UpdateTemplateAsync(int id, UpdateProcessTemplateRequest request);
         Task<bool> DeleteTemplateAsync(int id);
         Task<ProcessTemplateDto> SetDefaultTemplateAsync(int id);
-        Task<int> ApplyDefaultTemplateToProjectAsync(int projectId, int fallbackAssigneeId, int operatorUserId, int? templateId = null);
+        Task<int> ApplyDefaultTemplateToProjectAsync(int projectId, int? fallbackAssigneeId, int operatorUserId, int? templateId = null);
     }
 }

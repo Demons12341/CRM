@@ -30,6 +30,8 @@ namespace ProjectManagementSystem.Models.Entities
 
         public int UploadedBy { get; set; }
 
+        public bool IsShared { get; set; } = false;
+
         public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 
         [MaxLength(500)]

@@ -72,10 +72,9 @@ namespace ProjectManagementSystem.Services.Implementations
 
                 try
                 {
-                    var normalizedRelativePath = file.FilePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                    var fullPath = Path.Combine(_environment.ContentRootPath, "wwwroot", normalizedRelativePath);
+                    var fullPath = ResolvePhysicalPath(file.FilePath);
 
-                    if (System.IO.File.Exists(fullPath))
+                    if (!string.IsNullOrWhiteSpace(fullPath) && System.IO.File.Exists(fullPath))
                     {
                         System.IO.File.Delete(fullPath);
                     }
@@ -94,6 +93,44 @@ namespace ProjectManagementSystem.Services.Implementations
                 await dbContext.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("延迟清理完成，本轮清理源文件数量：{Count}", cleanedCount);
             }
+        }
+
+        private string? ResolvePhysicalPath(string? storedFilePath)
+        {
+            if (string.IsNullOrWhiteSpace(storedFilePath))
+            {
+                return null;
+            }
+
+            var candidate = storedFilePath.Trim();
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out var absoluteUri))
+            {
+                candidate = absoluteUri.LocalPath;
+            }
+
+            var queryIndex = candidate.IndexOfAny(new[] { '?', '#' });
+            if (queryIndex >= 0)
+            {
+                candidate = candidate[..queryIndex];
+            }
+
+            candidate = candidate.Replace('\\', '/').TrimStart('/');
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                return null;
+            }
+
+            var webRoot = !string.IsNullOrWhiteSpace(_environment.WebRootPath)
+                ? _environment.WebRootPath
+                : Path.Combine(_environment.ContentRootPath, "wwwroot");
+
+            var rootFullPath = Path.GetFullPath(webRoot);
+            var normalizedRelativePath = candidate.Replace('/', Path.DirectorySeparatorChar);
+            var fullPath = Path.GetFullPath(Path.Combine(rootFullPath, normalizedRelativePath));
+
+            return fullPath.StartsWith(rootFullPath, StringComparison.OrdinalIgnoreCase)
+                ? fullPath
+                : null;
         }
     }
 }

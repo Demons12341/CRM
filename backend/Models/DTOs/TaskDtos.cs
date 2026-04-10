@@ -81,6 +81,7 @@ namespace ProjectManagementSystem.Models.DTOs
         public int? Status { get; set; }
         public string? Keyword { get; set; }
         public bool? OverdueOnly { get; set; }
+        public bool? MyOpenScope { get; set; }
         [Range(1, int.MaxValue)]
         public int Page { get; set; } = 1;
         [Range(1, 200)]
@@ -116,6 +117,13 @@ namespace ProjectManagementSystem.Models.DTOs
     public class ImportMicrogridTemplateRequest
     {
         public int? DefaultAssigneeId { get; set; }
+        public int? TemplateId { get; set; }
+    }
+
+    public class ExportMicrogridTemplateRequest
+    {
+        [MaxLength(100)]
+        public string? TemplateName { get; set; }
     }
 
     public class SubmitTaskWorkRequest
@@ -154,5 +162,10 @@ namespace ProjectManagementSystem.Models.DTOs
     {
         public int TaskId { get; set; }
         public int AssigneeId { get; set; }
+    }
+
+    public class ClaimTaskRequest
+    {
+        public DateTime? DueDate { get; set; }
     }
 }

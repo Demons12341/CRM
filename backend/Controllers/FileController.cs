@@ -25,12 +25,13 @@ namespace ProjectManagementSystem.Controllers
             [FromQuery] int? parentId = null,
             [FromQuery] int? page = null,
             [FromQuery] int? pageSize = null,
-            [FromQuery] string? keyword = null)
+            [FromQuery] string? keyword = null,
+            [FromQuery] bool recursive = false)
         {
             try
             {
                 var userId = GetCurrentUserId();
-                var data = await _fileService.GetFilesByProjectIdAsync(projectId, parentId, page, pageSize, keyword, userId);
+                var data = await _fileService.GetFilesByProjectIdAsync(projectId, parentId, page, pageSize, keyword, recursive, userId);
                 return Ok(new ApiResponse<PaginatedResult<FileDto>>
                 {
                     Success = true,
@@ -91,6 +92,40 @@ namespace ProjectManagementSystem.Controllers
             catch (KeyNotFoundException ex)
             {
                 return NotFound(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("/api/files/recycle-bin")]
+        public async Task<ActionResult<ApiResponse<PaginatedResult<FileDto>>>> GetRecycleBinFiles(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? keyword = null)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var data = await _fileService.GetRecycleBinFilesAsync(page, pageSize, keyword, userId);
+                return Ok(new ApiResponse<PaginatedResult<FileDto>>
+                {
+                    Success = true,
+                    Data = data
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
                 {
                     Success = false,
                     Message = ex.Message
@@ -276,6 +311,86 @@ namespace ProjectManagementSystem.Controllers
                 });
             }
             catch (ArgumentException ex)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        [HttpPut("{id}/share")]
+        public async Task<ActionResult<ApiResponse<FileDto>>> ShareFile(int id)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var data = await _fileService.ShareFileAsync(id, userId);
+                return Ok(new ApiResponse<FileDto>
+                {
+                    Success = true,
+                    Data = data,
+                    Message = "共享成功"
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
+        [HttpPut("{id}/private")]
+        public async Task<ActionResult<ApiResponse<FileDto>>> MakeFilePrivate(int id)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                var data = await _fileService.MakeFilePrivateAsync(id, userId);
+                return Ok(new ApiResponse<FileDto>
+                {
+                    Success = true,
+                    Data = data,
+                    Message = "已设为私密"
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+            catch (InvalidOperationException ex)
             {
                 return BadRequest(new ApiResponse<object>
                 {

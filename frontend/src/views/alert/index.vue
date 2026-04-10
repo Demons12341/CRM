@@ -9,146 +9,117 @@
           </el-button>
         </div>
       </template>
-      
-      <div class="search-bar">
-        <el-select v-model="searchForm.alertType" placeholder="告警类型" clearable style="width: 150px;">
-          <el-option label="任务超期" :value="1" />
-          <el-option label="项目超期" :value="2" />
-          <el-option label="进度滞后" :value="3" />
-        </el-select>
-        <el-select v-model="searchForm.isRead" placeholder="阅读状态" clearable style="width: 150px;">
-          <el-option label="未读" :value="false" />
-          <el-option label="已读" :value="true" />
-        </el-select>
-        <el-button type="primary" @click="handleSearch">搜索</el-button>
-        <el-button @click="resetSearch">重置</el-button>
-        <el-button
-          type="primary"
-          :disabled="!canOperateOverdueReason"
-          @click="handleOverdueReasonAction"
-        >
-          {{ overdueReasonActionText }}
-        </el-button>
+
+      <div class="sticky-panel">
+        <div class="search-bar">
+          <el-select v-model="searchForm.alertType" placeholder="告警类型" clearable style="width: 150px;">
+            <el-option label="任务超期" :value="1" />
+            <el-option label="项目超期" :value="2" />
+            <el-option label="进度滞后" :value="3" />
+          </el-select>
+          <el-select v-model="searchForm.isRead" placeholder="阅读状态" clearable style="width: 150px;">
+            <el-option label="未读" :value="false" />
+            <el-option label="已读" :value="true" />
+          </el-select>
+          <el-button type="primary" @click="handleSearch">搜索</el-button>
+          <el-button @click="resetSearch">重置</el-button>
+          <el-button type="primary" :disabled="!canOperateOverdueReason" @click="handleOverdueReasonAction">
+            {{ overdueReasonActionText }}
+          </el-button>
+
+          <div class="alert-stats-inline">
+            <el-statistic title="总告警数" :value="pagination.total" />
+            <el-statistic title="未读告警" :value="unreadCount" />
+          </div>
+        </div>
       </div>
-      
-      <div class="alert-stats">
-        <el-statistic title="总告警数" :value="pagination.total" />
-        <el-statistic title="未读告警" :value="unreadCount" />
+
+      <div class="table-section">
+        <el-table ref="alertTableRef" :data="alerts" height="100%" style="width: 100%;" v-loading="loading"
+          highlight-current-row @selection-change="handleSelectionChange" @row-click="handleRowClick">
+          <el-table-column type="selection" width="50" />
+          <el-table-column prop="alertType" label="告警类型" width="110">
+            <template #default="{ row }">
+              <el-tag :type="getAlertTypeTagType(row.alertType)" size="small">
+                {{ row.alertTypeName || getAlertTypeName(row.alertType) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="message" label="告警信息" min-width="300">
+            <template #default="{ row }">
+              <div class="alert-message" :class="{ 'unread': !row.isRead }">
+                {{ row.message }}
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="alertStatusName" label="告警状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.alertStatus === 1 ? 'success' : 'danger'" size="small">
+                {{ row.alertStatusName || (row.alertStatus === 1 ? '已完成' : '超期中') }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="taskAssigneeName" label="任务负责人" width="130">
+            <template #default="{ row }">
+              {{ row.taskAssigneeName || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="overdueReason" label="超期原因" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.overdueReason || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="projectManagerName" label="项目负责人" width="130">
+            <template #default="{ row }">
+              {{ row.projectManagerName || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="projectName" label="相关项目" width="150" />
+          <el-table-column prop="taskName" label="相关任务" width="150" />
+          <el-table-column prop="createdAt" label="告警时间" width="160">
+            <template #default="{ row }">
+              {{ formatDateTime(row.createdAt) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="isRead" label="状态" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.isRead ? 'info' : 'danger'" size="small">
+                {{ row.isRead ? '已读' : '未读' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="220" fixed="right">
+            <template #default="{ row }">
+              <div class="action-inline">
+                <el-button v-if="!row.isRead" type="primary" link @click="markRead(row.id)">
+                  标记已读
+                </el-button>
+                <el-button v-if="row.taskId" type="primary" link @click="viewTask(row.taskId)">
+                  查看任务
+                </el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
-      
-      <el-table
-        ref="alertTableRef"
-        :data="alerts"
-        style="width: 100%;"
-        v-loading="loading"
-        highlight-current-row
-        @selection-change="handleSelectionChange"
-        @row-click="handleRowClick"
-      >
-        <el-table-column type="selection" width="50" />
-        <el-table-column prop="alertType" label="告警类型" width="110">
-          <template #default="{ row }">
-            <el-tag :type="getAlertTypeTagType(row.alertType)" size="small">
-              {{ row.alertTypeName || getAlertTypeName(row.alertType) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="message" label="告警信息" min-width="300">
-          <template #default="{ row }">
-            <div class="alert-message" :class="{ 'unread': !row.isRead }">
-              {{ row.message }}
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="alertStatusName" label="告警状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.alertStatus === 1 ? 'success' : 'danger'" size="small">
-              {{ row.alertStatusName || (row.alertStatus === 1 ? '已完成' : '超期中') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="taskAssigneeName" label="任务负责人" width="130">
-          <template #default="{ row }">
-            {{ row.taskAssigneeName || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="overdueReason" label="超期原因" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ row.overdueReason || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="projectManagerName" label="项目负责人" width="130">
-          <template #default="{ row }">
-            {{ row.projectManagerName || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="projectName" label="相关项目" width="150" />
-        <el-table-column prop="taskName" label="相关任务" width="150" />
-        <el-table-column prop="createdAt" label="告警时间" width="160">
-          <template #default="{ row }">
-            {{ formatDateTime(row.createdAt) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="isRead" label="状态" width="80">
-          <template #default="{ row }">
-            <el-tag :type="row.isRead ? 'info' : 'danger'" size="small">
-              {{ row.isRead ? '已读' : '未读' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <div class="action-inline">
-              <el-button
-                v-if="!row.isRead"
-                type="primary"
-                link
-                @click="markRead(row.id)"
-              >
-                标记已读
-              </el-button>
-              <el-button
-                v-if="row.taskId"
-                type="primary"
-                link
-                @click="viewTask(row.taskId)"
-              >
-                查看任务
-              </el-button>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
-      
+
       <div class="pagination">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[10, 20, 50, 100]"
-          :total="pagination.total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
-        />
+        <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.pageSize"
+          :page-sizes="[10, 20, 50, 100]" :total="pagination.total" layout="total, sizes, prev, pager, next, jumper"
+          @size-change="handleSizeChange" @current-change="handleCurrentChange" />
       </div>
     </el-card>
 
     <el-dialog v-model="overdueReasonDialogVisible" :title="overdueReasonDialogTitle" width="520px">
-      <el-input
-        v-if="canEditOverdueReason"
-        v-model="overdueReasonForm.overdueReason"
-        type="textarea"
-        :rows="4"
-        maxlength="1000"
-        show-word-limit
-        placeholder="请输入超期原因"
-      />
+      <el-input v-if="canEditOverdueReason" v-model="overdueReasonForm.overdueReason" type="textarea" :rows="4"
+        maxlength="1000" show-word-limit placeholder="请输入超期原因" />
       <div v-else class="overdue-reason-view">
-        {{ overdueReasonForm.overdueReason || '暂无超期原因' }}
+        {{ overdueReasonForm.overdueReason || '暂未填写超期原因' }}
       </div>
       <template #footer>
         <el-button @click="overdueReasonDialogVisible = false">取消</el-button>
-        <el-button v-if="canEditOverdueReason" type="primary" :loading="savingOverdueReason" @click="submitOverdueReason">提交</el-button>
+        <el-button v-if="canEditOverdueReason" type="primary" :loading="savingOverdueReason"
+          @click="submitOverdueReason">提交</el-button>
       </template>
     </el-dialog>
   </div>
@@ -244,7 +215,7 @@ const fetchAlerts = async () => {
     }
     if (searchForm.alertType !== undefined) params.alertType = searchForm.alertType
     if (searchForm.isRead !== undefined) params.isRead = searchForm.isRead
-    
+
     const res = await request.get('/alerts', { params })
     alerts.value = res.data.items
     selectedAlert.value = null
@@ -395,6 +366,28 @@ onMounted(() => {
 <style scoped>
 .alert-page {
   padding: 10px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: hidden;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  display: flex;
+}
+
+.alert-page :deep(.el-card) {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.alert-page :deep(.el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: visible;
 }
 
 .card-header {
@@ -403,19 +396,26 @@ onMounted(() => {
   align-items: center;
 }
 
+.sticky-panel {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--el-bg-color);
+  padding-top: 4px;
+}
+
 .search-bar {
   display: flex;
   gap: 10px;
   margin-bottom: 20px;
+  align-items: center;
 }
 
-.alert-stats {
+.alert-stats-inline {
   display: flex;
-  gap: 40px;
-  margin-bottom: 20px;
-  padding: 20px;
-  background: #f5f7fa;
-  border-radius: 4px;
+  align-items: center;
+  gap: 24px;
+  margin-left: auto;
 }
 
 .alert-message {
@@ -427,10 +427,18 @@ onMounted(() => {
   color: #303133;
 }
 
+.table-section {
+  flex: 1;
+  min-height: 0;
+}
+
 .pagination {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+  margin-top: auto;
+  padding: 12px 0;
+  background: var(--el-bg-color);
 }
 
 .action-inline {

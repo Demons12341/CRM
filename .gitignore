@@ -20,6 +20,10 @@ logs/
 backend/wwwroot/uploads/
 **/wwwroot/uploads/
 
+# Ignore web root generated/static content
+backend/wwwroot/
+**/wwwroot/
+
 # Frontend (Vite/Node)
 frontend/node_modules/
 frontend/dist/

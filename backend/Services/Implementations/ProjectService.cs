@@ -49,8 +49,14 @@ namespace ProjectManagementSystem.Services.Implementations
             var totalCount = await query.CountAsync();
             var totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize);
 
+            var today = DateTime.UtcNow.Date;
+
             var projects = await query
-                .OrderByDescending(p => p.CreatedAt)
+                .OrderBy(p => p.Status == 2 ? 1 : 0)
+                .ThenByDescending(p => p.Priority)
+                .ThenBy(p => p.EndDate.HasValue ? (p.EndDate.Value.Date < today ? 0 : 1) : 2)
+                .ThenBy(p => p.EndDate)
+                .ThenByDescending(p => p.CreatedAt)
                 .Skip((request.Page - 1) * request.PageSize)
                 .Take(request.PageSize)
                 .Select(p => new ProjectDto
@@ -197,7 +203,10 @@ namespace ProjectManagementSystem.Services.Implementations
             _context.ProjectMembers.AddRange(membersToAdd);
             await _context.SaveChangesAsync();
 
-            await _processTemplateService.ApplyDefaultTemplateToProjectAsync(project.Id, request.ManagerId, request.ManagerId, request.ProcessTemplateId);
+            if (request.ProcessTemplateId != 0)
+            {
+                await _processTemplateService.ApplyDefaultTemplateToProjectAsync(project.Id, null, request.ManagerId, request.ProcessTemplateId);
+            }
 
             var createdProjectTasks = await _context.Tasks
                 .Where(t => t.ProjectId == project.Id)
@@ -351,6 +360,14 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new InvalidOperationException("共享文件夹项目禁止删除");
             }
 
+            var hasManagedFiles = await _context.Files
+                .IgnoreQueryFilters()
+                .AnyAsync(f => f.ProjectId == id);
+            if (hasManagedFiles)
+            {
+                throw new InvalidOperationException("项目文件管理中仍有文件或文件夹，无法删除项目");
+            }
+
             project.IsDeleted = true;
             project.UpdatedAt = DateTime.UtcNow;
 
@@ -490,6 +507,50 @@ namespace ProjectManagementSystem.Services.Implementations
             return await _context.ProjectMembers
                 .AsNoTracking()
                 .AnyAsync(pm => pm.ProjectId == projectId && pm.UserId == userId);
+        }
+
+        public async Task<bool> CanUserEditProjectAsync(int projectId, int userId)
+        {
+            var currentUser = await _context.Users
+                .Include(u => u.Role)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+
+            if (currentUser == null)
+            {
+                return false;
+            }
+
+            if (currentUser.Role.Name == "管理员")
+            {
+                return await _context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId);
+            }
+
+            return await _context.Projects
+                .AsNoTracking()
+                .AnyAsync(p => p.Id == projectId && p.ManagerId == userId);
+        }
+
+        public async Task<bool> CanUserManageProjectMembersAsync(int projectId, int userId)
+        {
+            var currentUser = await _context.Users
+                .Include(u => u.Role)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+
+            if (currentUser == null)
+            {
+                return false;
+            }
+
+            if (currentUser.Role.Name == "管理员")
+            {
+                return await _context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId);
+            }
+
+            return await _context.Projects
+                .AsNoTracking()
+                .AnyAsync(p => p.Id == projectId && p.ManagerId == userId);
         }
 
         public async Task<List<ProjectMemberDto>> GetProjectMembersAsync(int projectId)

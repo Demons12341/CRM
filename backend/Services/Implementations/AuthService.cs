@@ -27,7 +27,12 @@ namespace ProjectManagementSystem.Services.Implementations
         {
             var user = await _context.Users
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.Username == request.Username && u.IsActive);
+                .FirstOrDefaultAsync(u => u.Username == request.Username);
+
+            if (user != null && !user.IsActive)
+            {
+                throw new UnauthorizedAccessException("账号已被禁用，请联系管理员");
+            }
 
             if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {

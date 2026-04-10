@@ -35,7 +35,7 @@
           @confirm="completeSelectedProject"
         >
           <template #reference>
-            <el-button type="success" :disabled="!selectedProject || selectedProject.status === 2">
+            <el-button type="success" :disabled="!canCompleteSelectedProject">
               完成项目
             </el-button>
           </template>
@@ -57,6 +57,9 @@
             <el-link type="primary" @click="viewProject(row.id)">
               {{ row.name }}
             </el-link>
+            <el-tag v-if="isProjectOverdue(row) || hasOverdueTask(row)" class="project-alert-tag" type="danger" size="small">
+              预警
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="managerName" label="负责人" width="120" />
@@ -67,11 +70,19 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column prop="status" label="状态 / 拖期" min-width="280">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)">
-              {{ getStatusName(row.status) }}
-            </el-tag>
+            <div class="status-cell">
+              <el-tag :type="getStatusType(row.status)">
+                {{ getStatusName(row.status) }}
+              </el-tag>
+              <el-tag v-if="isProjectOverdue(row)" type="danger">
+                项目拖期 {{ getProjectOverdueDays(row) }} 天
+              </el-tag>
+              <el-tag v-if="hasOverdueTask(row)" type="danger">
+                任务超期
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="progress" label="进度" width="150">
@@ -165,6 +176,7 @@
             multiple
             clearable
             collapse-tags
+            :max-collapse-tags="3"
             collapse-tags-tooltip
           >
             <el-option
@@ -207,7 +219,7 @@
             <el-option label="已暂停" :value="3" />
           </el-select>
         </el-form-item>
-        <el-form-item label="开始日期" prop="startDate">
+        <el-form-item label="开始日期" prop="startDate" :required="!isEdit">
           <el-date-picker
             v-model="form.startDate"
             type="date"
@@ -215,7 +227,7 @@
             value-format="YYYY-MM-DD"
           />
         </el-form-item>
-        <el-form-item label="结束日期" prop="endDate">
+        <el-form-item label="结束日期" prop="endDate" :required="!isEdit">
           <el-date-picker
             v-model="form.endDate"
             type="date"
@@ -235,7 +247,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules, TableInstance } from 'element-plus'
@@ -258,6 +270,7 @@ const processTemplates = ref<any[]>([])
 const selectedProject = ref<any | null>(null)
 const currentUser = ref<any | null>(null)
 const isAdmin = ref(false)
+const overdueTaskProjectIds = ref<Set<number>>(new Set())
 const SHARED_FOLDER_PROJECT_NAME = '共享文件夹'
 
 const searchForm = reactive({
@@ -269,6 +282,18 @@ const pagination = reactive({
   page: 1,
   pageSize: 10,
   total: 0
+})
+
+const canCompleteSelectedProject = computed(() => {
+  if (!selectedProject.value) {
+    return false
+  }
+
+  if (Number(selectedProject.value.status) === 2) {
+    return false
+  }
+
+  return canEditProject(selectedProject.value)
 })
 
 const form = reactive({
@@ -332,6 +357,7 @@ const fetchProjects = async () => {
     
     const res = await request.get('/projects', { params })
     projects.value = res.data.items
+    await fetchOverdueProjectFlags()
     selectedProject.value = null
     projectTableRef.value?.clearSelection()
     pagination.total = res.data.totalCount
@@ -339,6 +365,50 @@ const fetchProjects = async () => {
     console.error('获取项目列表失败：', error)
   } finally {
     loading.value = false
+  }
+}
+
+const fetchOverdueProjectFlags = async () => {
+  if (!projects.value.length) {
+    overdueTaskProjectIds.value = new Set<number>()
+    return
+  }
+
+  try {
+    const overdueIds = new Set<number>()
+    const validProjectIdSet = new Set<number>(projects.value.map((project: any) => Number(project.id)))
+
+    const pageSize = 200
+    let page = 1
+    let totalPages = 1
+
+    while (page <= totalPages) {
+      const res = await request.get('/tasks', {
+        params: {
+          page,
+          pageSize,
+          overdueOnly: true
+        },
+        headers: { 'X-Silent-Error': '1' }
+      })
+
+      const items = Array.isArray(res.data.items) ? res.data.items : []
+      totalPages = Number(res.data.totalPages || 1) || 1
+
+      for (const item of items) {
+        const projectId = Number(item?.projectId)
+        if (projectId > 0 && validProjectIdSet.has(projectId)) {
+          overdueIds.add(projectId)
+        }
+      }
+
+      page += 1
+    }
+
+    overdueTaskProjectIds.value = overdueIds
+  } catch (error) {
+    overdueTaskProjectIds.value = new Set<number>()
+    console.error('获取项目超期任务标记失败：', error)
   }
 }
 
@@ -389,6 +459,11 @@ const showCreateDialog = () => {
 }
 
 const editProject = async (row: any) => {
+  if (!canEditProject(row)) {
+    ElMessage.warning('仅项目负责人或管理员可编辑项目')
+    return
+  }
+
   isEdit.value = true
   editId.value = row.id
   Object.assign(form, {
@@ -498,6 +573,11 @@ const deleteProject = async (id: number) => {
 }
 
 const completeProject = async (row: any) => {
+  if (!canEditProject(row)) {
+    ElMessage.warning('仅项目负责人或管理员可完成项目')
+    return
+  }
+
   try {
     await request.put(`/projects/${row.id}`, { status: 2 })
     ElMessage.success('项目已完成')
@@ -510,6 +590,11 @@ const completeProject = async (row: any) => {
 const completeSelectedProject = async () => {
   if (!selectedProject.value) {
     ElMessage.warning('请先选择一个项目')
+    return
+  }
+
+  if (!canEditProject(selectedProject.value)) {
+    ElMessage.warning('仅项目负责人或管理员可完成项目')
     return
   }
 
@@ -553,12 +638,51 @@ const viewProject = (id: number) => {
   router.push(`/projects/${id}`)
 }
 
+const canEditProject = (project: any) => {
+  if (!currentUser.value || !project) {
+    return false
+  }
+
+  if (isAdmin.value) {
+    return true
+  }
+
+  return Number(project.managerId) === Number(currentUser.value.id)
+}
+
 const getUserLabel = (user: any) => {
   return user.realName ? `${user.realName} (${user.username})` : user.username
 }
 
 const isSharedFolderProject = (project: any) => {
   return `${project?.name || ''}`.trim() === SHARED_FOLDER_PROJECT_NAME
+}
+
+const hasOverdueTask = (project: any) => {
+  const projectId = Number(project?.id)
+  return projectId > 0 && overdueTaskProjectIds.value.has(projectId)
+}
+
+const isProjectOverdue = (project: any) => {
+  if (!project?.endDate) {
+    return false
+  }
+
+  const status = Number(project?.status)
+  if (status === 2 || status === 3) {
+    return false
+  }
+
+  return dayjs().isAfter(dayjs(project.endDate).endOf('day'))
+}
+
+const getProjectOverdueDays = (project: any) => {
+  if (!isProjectOverdue(project)) {
+    return 0
+  }
+
+  const overdueDays = dayjs().startOf('day').diff(dayjs(project.endDate).startOf('day'), 'day')
+  return overdueDays > 0 ? overdueDays : 1
 }
 
 const getPriorityType = (priority: number) => {
@@ -622,6 +746,21 @@ onMounted(() => {
 <style scoped>
 .project-page {
   padding: 10px;
+  min-height: calc(100vh - 120px);
+  display: flex;
+}
+
+.project-page :deep(.el-card) {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.project-page :deep(.el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .card-header {
@@ -636,9 +775,23 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
+.status-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.project-alert-tag {
+  margin-left: 8px;
+}
+
 .pagination {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+  margin-top: auto;
+  padding: 12px 0;
+  background: var(--el-bg-color);
 }
 </style>

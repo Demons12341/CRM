@@ -4,10 +4,25 @@
       <template #header>
         <div class="card-header">
           <span>用户管理</span>
-          <el-button type="primary" @click="showCreateDialog">
-            <el-icon><Plus /></el-icon>
-            新建用户
-          </el-button>
+          <div class="header-actions">
+            <el-button @click="downloadImportTemplate">
+              下载Excel模板
+            </el-button>
+            <el-upload
+              :show-file-list="false"
+              :http-request="uploadImportExcel"
+              accept=".xlsx"
+              :disabled="importing"
+            >
+              <el-button :loading="importing" type="success">
+                上传Excel导入
+              </el-button>
+            </el-upload>
+            <el-button type="primary" @click="showCreateDialog">
+              <el-icon><Plus /></el-icon>
+              新建用户
+            </el-button>
+          </div>
         </div>
       </template>
       
@@ -146,9 +161,11 @@ import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { request } from '@/api/request'
 import dayjs from 'dayjs'
+import axios from 'axios'
 
 const loading = ref(false)
 const submitting = ref(false)
+const importing = ref(false)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const editId = ref<number | null>(null)
@@ -278,8 +295,16 @@ const getApiErrorMessage = (error: any, fallback: string) => {
 
   if (responseData?.errors && typeof responseData.errors === 'object') {
     const firstFieldErrors = Object.values(responseData.errors)
-      .flat()
-      .filter((item: any) => typeof item === 'string') as string[]
+      .reduce((acc: string[], current: any) => {
+        if (Array.isArray(current)) {
+          current.forEach((item) => {
+            if (typeof item === 'string') {
+              acc.push(item)
+            }
+          })
+        }
+        return acc
+      }, [])
 
     if (firstFieldErrors.length > 0) {
       return firstFieldErrors[0]
@@ -339,6 +364,65 @@ const deleteUser = async (id: number) => {
   }
 }
 
+const downloadImportTemplate = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      ElMessage.error('登录已过期，请重新登录')
+      return
+    }
+
+    const response = await axios.get('/api/users/import-template/download', {
+      responseType: 'blob',
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+
+    const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/octet-stream' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = '用户导入模板.xlsx'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('下载模板失败：', error)
+    ElMessage.error('下载模板失败，请稍后重试')
+  }
+}
+
+const uploadImportExcel = async (options: any) => {
+  const uploadFile = options?.file as File | undefined
+  if (!uploadFile) {
+    ElMessage.warning('请选择要上传的Excel文件')
+    return
+  }
+
+  if (!uploadFile.name.toLowerCase().endsWith('.xlsx')) {
+    ElMessage.warning('仅支持 .xlsx 格式文件')
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('file', uploadFile)
+
+  importing.value = true
+  try {
+    const res = await request.post('/users/import-template/upload', formData)
+    const data = res.data || {}
+    ElMessage.success(`导入完成：成功 ${data.importedCount ?? 0} 条，跳过 ${data.skippedCount ?? 0} 条`)
+    await fetchUsers()
+  } catch (error) {
+    ElMessage.error(getApiErrorMessage(error, '导入失败，请稍后重试'))
+    console.error('导入用户失败：', error)
+  } finally {
+    importing.value = false
+  }
+}
+
 const getRoleType = (roleName: string) => {
   const types: Record<string, string> = {
     '管理员': 'danger',
@@ -362,12 +446,32 @@ onMounted(() => {
 <style scoped>
 .users-page {
   padding: 10px;
+  min-height: calc(100vh - 120px);
+  display: flex;
+}
+
+.users-page :deep(.el-card) {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.users-page :deep(.el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .search-bar {
@@ -380,5 +484,8 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+  margin-top: auto;
+  padding: 12px 0;
+  background: var(--el-bg-color);
 }
 </style>
