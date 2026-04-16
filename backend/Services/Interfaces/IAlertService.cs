@@ -4,7 +4,7 @@ namespace ProjectManagementSystem.Services.Interfaces
 {
     public interface IAlertService
     {
-        Task<PaginatedResult<AlertDto>> GetAlertsAsync(int userId, int page, int pageSize, int? alertType, bool? isRead);
+        Task<PaginatedResult<AlertDto>> GetAlertsAsync(int userId, int page, int pageSize, int? alertType, bool? isRead, int? alertStatus);
         Task<int> GetUnreadCountAsync(int userId);
         Task<bool> MarkAsReadAsync(int id, int userId);
         Task<bool> MarkAllAsReadAsync(int userId);

@@ -24,10 +24,11 @@ namespace ProjectManagementSystem.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10,
             [FromQuery] int? alertType = null,
-            [FromQuery] bool? isRead = null)
+            [FromQuery] bool? isRead = null,
+            [FromQuery] int? alertStatus = null)
         {
             var userId = GetCurrentUserId();
-            var data = await _alertService.GetAlertsAsync(userId, page, pageSize, alertType, isRead);
+            var data = await _alertService.GetAlertsAsync(userId, page, pageSize, alertType, isRead, alertStatus);
             return Ok(new ApiResponse<PaginatedResult<AlertDto>>
             {
                 Success = true,

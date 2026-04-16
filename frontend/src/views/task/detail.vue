@@ -25,6 +25,41 @@
         <el-descriptions-item label="描述" :span="2">{{ task.description || '-' }}</el-descriptions-item>
       </el-descriptions>
 
+      <div class="work-submission-section">
+        <div class="work-submission-title">任务提交记录</div>
+        <el-timeline v-if="workSubmissionLogs.length">
+          <el-timeline-item
+            v-for="item in workSubmissionLogs"
+            :key="item.id"
+            :timestamp="formatDateTime(item.createdAt)">
+            <div class="work-submission-item">
+              <div class="work-submission-meta">{{ item.username }}</div>
+              <div class="work-submission-content">
+                <div
+                  v-for="(line, lineIndex) in item.summaryLines"
+                  :key="`${item.id}-line-${lineIndex}`"
+                  class="work-summary-line">
+                  <template v-if="line.type === 'deliverables'">
+                    <span>交付物：</span>
+                    <template v-if="line.deliverableNames.length">
+                      <span v-for="(name, index) in line.deliverableNames" :key="`${item.id}-${name}-${index}`">
+                        <el-link type="primary" @click="goToDeliverableFile(name)">{{ name }}</el-link>
+                        <span v-if="Number(index) < line.deliverableNames.length - 1">；</span>
+                      </span>
+                    </template>
+                    <span v-else>{{ line.rawValue }}</span>
+                  </template>
+                  <template v-else>
+                    {{ line.raw }}
+                  </template>
+                </div>
+              </div>
+            </div>
+          </el-timeline-item>
+        </el-timeline>
+        <el-empty v-else description="暂无任务提交记录" />
+      </div>
+
       <div class="submit-actions">
         <el-button v-if="canClaimTask" type="warning" :loading="claimLoading" @click="claimTask">认领任务</el-button>
         <el-button v-if="canEditTask" type="primary" @click="openWorkDialog">提交工作记录</el-button>
@@ -116,6 +151,63 @@ const logs = ref<any[]>([])
 const currentUser = ref<any>(null)
 const taskFolderId = ref<number | null>(null)
 
+const extractDeliverableNames = (summary: string) => {
+  const lines = `${summary || ''}`
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const deliverableLine = lines.find((line) => line.startsWith('交付物：'))
+  if (!deliverableLine) {
+    return [] as string[]
+  }
+
+  return deliverableLine
+    .replace('交付物：', '')
+    .split(/[；;，,、]/)
+    .map((name) => name.trim())
+    .filter(Boolean)
+}
+
+const buildWorkSummaryLines = (summary: string) => {
+  return `${summary || ''}`
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      if (line.startsWith('交付物：')) {
+        const rawValue = line.replace('交付物：', '').trim()
+        return {
+          type: 'deliverables',
+          raw: line,
+          rawValue,
+          deliverableNames: rawValue
+            .split(/[；;，,、]/)
+            .map((name) => name.trim())
+            .filter(Boolean)
+        }
+      }
+
+      return {
+        type: 'text',
+        raw: line,
+        rawValue: '',
+        deliverableNames: [] as string[]
+      }
+    })
+}
+
+const workSubmissionLogs = computed(() => {
+  return [...logs.value]
+    .filter((item: any) => item?.action === '工作提交' && `${item?.newValue || ''}`.trim())
+    .map((item: any) => ({
+      ...item,
+      deliverableNames: extractDeliverableNames(item?.newValue || ''),
+      summaryLines: buildWorkSummaryLines(item?.newValue || '')
+    }))
+    .sort((a: any, b: any) => dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf())
+})
+
 const isCurrentUserAssignee = computed(() => {
   if (!task.value || !currentUser.value?.id) return false
 
@@ -188,9 +280,9 @@ const beforeDeliverableUpload = (file: File) => {
     return false
   }
 
-  const isLt50M = file.size / 1024 / 1024 < 50
-  if (!isLt50M) {
-    ElMessage.error('文件大小不能超过 50MB')
+  const isLt200M = file.size / 1024 / 1024 < 200
+  if (!isLt200M) {
+    ElMessage.error('文件大小不能超过 200MB')
     return false
   }
 
@@ -273,6 +365,7 @@ const uploadDeliverableFile = async (options: any) => {
       headers: {
         'Content-Type': 'multipart/form-data'
       },
+      timeout: 0,
       onUploadProgress: (event: any) => {
         const loaded = Number(event?.loaded || 0)
         const total = Number(event?.total || 0)
@@ -345,6 +438,29 @@ const submitWork = async () => {
   } finally {
     submitLoading.value = false
   }
+}
+
+const goToDeliverableFile = (fileName: string) => {
+  if (!task.value?.projectId) {
+    ElMessage.warning('任务未绑定项目，无法定位文件')
+    return
+  }
+
+  const normalizedName = `${fileName || ''}`.trim()
+  if (!normalizedName) {
+    ElMessage.warning('交付物名称为空，无法定位文件')
+    return
+  }
+
+  router.push({
+    path: '/files',
+    query: {
+      projectId: String(task.value.projectId),
+      taskFolder: getTaskFolderName(),
+      fileName: normalizedName,
+      fromTaskId: String(taskId.value)
+    }
+  })
 }
 
 const completeTask = async () => {
@@ -467,6 +583,36 @@ onMounted(async () => {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+.work-submission-section {
+  margin-top: 16px;
+}
+
+.work-submission-title {
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.work-submission-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.work-submission-meta {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.work-submission-content {
+  white-space: normal;
+  line-height: 1.6;
+}
+
+.work-summary-line {
+  white-space: pre-wrap;
 }
 
 .deliverables-row {

@@ -82,6 +82,8 @@ namespace ProjectManagementSystem.Models.DTOs
         public string? Keyword { get; set; }
         public bool? OverdueOnly { get; set; }
         public bool? MyOpenScope { get; set; }
+        [MaxLength(30)]
+        public string? SortBy { get; set; }
         [Range(1, int.MaxValue)]
         public int Page { get; set; } = 1;
         [Range(1, 200)]

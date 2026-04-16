@@ -18,7 +18,7 @@ namespace ProjectManagementSystem.Services.Implementations
             _context = context;
         }
 
-        public async Task<PaginatedResult<AlertDto>> GetAlertsAsync(int userId, int page, int pageSize, int? alertType, bool? isRead)
+        public async Task<PaginatedResult<AlertDto>> GetAlertsAsync(int userId, int page, int pageSize, int? alertType, bool? isRead, int? alertStatus)
         {
             await EnsureOverdueAlertsAsync();
 
@@ -49,6 +49,22 @@ namespace ProjectManagementSystem.Services.Implementations
             if (isRead.HasValue)
             {
                 query = query.Where(a => a.IsRead == isRead.Value);
+            }
+
+            if (alertStatus.HasValue)
+            {
+                if (alertStatus.Value == 1)
+                {
+                    query = query.Where(a =>
+                        (a.AlertType == 1 && a.Task != null && a.Task.Status == 2) ||
+                        (a.AlertType == 2 && a.Project != null && a.Project.Status == 2));
+                }
+                else
+                {
+                    query = query.Where(a =>
+                        !((a.AlertType == 1 && a.Task != null && a.Task.Status == 2) ||
+                          (a.AlertType == 2 && a.Project != null && a.Project.Status == 2)));
+                }
             }
 
             var totalCount = await query.CountAsync();
@@ -123,6 +139,8 @@ namespace ProjectManagementSystem.Services.Implementations
                 .ToListAsync();
 
             var query = _context.Alerts
+                .Include(a => a.Project)
+                .Include(a => a.Task)
                 .Where(a => a.UserId == userId && !a.IsRead)
                 .AsQueryable();
 
@@ -130,6 +148,10 @@ namespace ProjectManagementSystem.Services.Implementations
             {
                 query = query.Where(a => !a.ProjectId.HasValue || !hiddenProjectIds.Contains(a.ProjectId.Value));
             }
+
+            query = query.Where(a =>
+                !((a.AlertType == 1 && a.Task != null && a.Task.Status == 2) ||
+                  (a.AlertType == 2 && a.Project != null && a.Project.Status == 2)));
 
             return await query.CountAsync();
         }

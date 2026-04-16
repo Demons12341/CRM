@@ -246,6 +246,9 @@ import { ref, reactive, onMounted, computed, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { request } from '@/api/request'
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
 
 const loading = ref(false)
 const files = ref<any[]>([])
@@ -293,6 +296,7 @@ const downloadProgressKnown = ref(true)
 const downloadLoadedText = ref('0 B')
 const selectedFileIds = ref<number[]>([])
 const currentUser = ref<any>(null)
+const locateQuery = ref<{ projectId: number, fileName: string, taskFolder: string } | null>(null)
 
 const withSilentError = (config: any = {}) => ({
   ...config,
@@ -697,13 +701,85 @@ const fetchProjects = async () => {
     })
 
     projects.value = items
-    if (projects.value.length > 0) {
-      searchForm.projectId = normalizeProjectId(projects.value[0])
-      fetchFiles()
+    if (!projects.value.length) {
+      return
+    }
+
+    const queryProjectId = locateQuery.value?.projectId
+    const hasQueryProject = Number.isFinite(queryProjectId)
+      && Number(queryProjectId) > 0
+      && projects.value.some((project: any) => normalizeProjectId(project) === Number(queryProjectId))
+
+    searchForm.projectId = hasQueryProject
+      ? Number(queryProjectId)
+      : normalizeProjectId(projects.value[0])
+
+    await fetchFiles()
+
+    if (locateQuery.value) {
+      await locateFileFromQuery()
     }
   } catch (error) {
     console.error('获取项目列表失败：', error)
     notifyPermissionOrError(error, '获取项目列表失败')
+  }
+}
+
+const locateFileFromQuery = async () => {
+  const target = locateQuery.value
+  if (!target) {
+    return
+  }
+
+  if (!target.projectId || !target.fileName) {
+    locateQuery.value = null
+    return
+  }
+
+  recycleMode.value = false
+  searchForm.projectId = target.projectId
+  searchForm.keyword = ''
+  currentFolderId.value = undefined
+  folderPath.value = []
+  selectedFileIds.value = []
+
+  try {
+    const params: any = {
+      keyword: target.fileName,
+      recursive: true
+    }
+
+    const res = await request.get(`/projects/${target.projectId}/files`, withSilentError({ params }))
+    const items = Array.isArray(res?.data?.items) ? res.data.items : []
+
+    const normalizedFileName = `${target.fileName}`.trim()
+    const exactFileMatches = items.filter((item: any) => {
+      if (item?.isFolder) {
+        return false
+      }
+
+      return `${item?.fileName || ''}`.trim() === normalizedFileName
+    })
+
+    const matchedInTaskFolder = exactFileMatches.find((item: any) => {
+      const path = `${item?.locationPath || ''}`
+      return !!target.taskFolder && path.split('/').map((name: string) => name.trim()).includes(target.taskFolder)
+    })
+
+    const targetFile = matchedInTaskFolder || exactFileMatches[0]
+    if (!targetFile) {
+      ElMessage.warning(`未找到交付物文件：${target.fileName}`)
+      await fetchFiles()
+      locateQuery.value = null
+      return
+    }
+
+    await goToFileLocation(targetFile)
+  } catch (error) {
+    console.error('定位交付物文件失败：', error)
+    ElMessage.warning('定位交付物文件失败，请稍后重试')
+  } finally {
+    locateQuery.value = null
   }
 }
 
@@ -1875,6 +1951,17 @@ onMounted(() => {
   const userStr = localStorage.getItem('user')
   if (userStr) {
     currentUser.value = JSON.parse(userStr)
+  }
+
+  const queryProjectId = Number(route.query.projectId)
+  const queryFileName = `${route.query.fileName || ''}`.trim()
+  const queryTaskFolder = `${route.query.taskFolder || ''}`.trim()
+  if (queryProjectId > 0 && queryFileName) {
+    locateQuery.value = {
+      projectId: queryProjectId,
+      fileName: queryFileName,
+      taskFolder: queryTaskFolder
+    }
   }
 
   window.addEventListener('click', closeEntryContextMenu)

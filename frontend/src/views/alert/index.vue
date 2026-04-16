@@ -21,6 +21,10 @@
             <el-option label="未读" :value="false" />
             <el-option label="已读" :value="true" />
           </el-select>
+          <el-select v-model="searchForm.alertStatus" placeholder="完成状态" clearable style="width: 150px;">
+            <el-option label="未完成" :value="0" />
+            <el-option label="已完成" :value="1" />
+          </el-select>
           <el-button type="primary" @click="handleSearch">搜索</el-button>
           <el-button @click="resetSearch">重置</el-button>
           <el-button type="primary" :disabled="!canOperateOverdueReason" @click="handleOverdueReasonAction">
@@ -151,7 +155,8 @@ const overdueReasonForm = reactive({
 
 const searchForm = reactive({
   alertType: undefined as number | undefined,
-  isRead: undefined as boolean | undefined
+  isRead: undefined as boolean | undefined,
+  alertStatus: 0 as number | undefined
 })
 
 const pagination = reactive({
@@ -215,6 +220,7 @@ const fetchAlerts = async () => {
     }
     if (searchForm.alertType !== undefined) params.alertType = searchForm.alertType
     if (searchForm.isRead !== undefined) params.isRead = searchForm.isRead
+    if (searchForm.alertStatus !== undefined) params.alertStatus = searchForm.alertStatus
 
     const res = await request.get('/alerts', { params })
     alerts.value = res.data.items
@@ -236,6 +242,7 @@ const handleSearch = () => {
 const resetSearch = () => {
   searchForm.alertType = undefined
   searchForm.isRead = undefined
+  searchForm.alertStatus = 0
   handleSearch()
 }
 

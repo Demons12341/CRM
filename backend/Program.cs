@@ -282,6 +282,97 @@ using (var scope = app.Services.CreateScope())
     {
         Log.Information("Files 延迟清理索引初始化跳过：{Message}", ex.Message);
     }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw(@"
+CREATE TABLE IF NOT EXISTS `ProcessTemplates` (
+  `Id` int NOT NULL AUTO_INCREMENT,
+  `Name` varchar(100) NOT NULL,
+  `Description` varchar(500) NULL,
+  `IsDefault` tinyint(1) NOT NULL DEFAULT 0,
+    `IsDeleted` tinyint(1) NOT NULL DEFAULT 0,
+  `CreatedAt` datetime(6) NOT NULL,
+  `UpdatedAt` datetime(6) NOT NULL,
+  PRIMARY KEY (`Id`)
+);");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("ProcessTemplates 表初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw(@"
+CREATE TABLE IF NOT EXISTS `ProcessTemplateSteps` (
+  `Id` int NOT NULL AUTO_INCREMENT,
+  `ProcessTemplateId` int NOT NULL,
+  `SortOrder` int NOT NULL,
+  `Stage` varchar(100) NOT NULL,
+  `Name` varchar(200) NOT NULL,
+  `Description` varchar(1000) NULL,
+  `Priority` int NOT NULL,
+  `DefaultAssigneeId` int NULL,
+  `DefaultAssigneeIds` varchar(500) NOT NULL,
+  `EstimatedDays` int NOT NULL,
+    `IsDeleted` tinyint(1) NOT NULL DEFAULT 0,
+  `CreatedAt` datetime(6) NOT NULL,
+  `UpdatedAt` datetime(6) NOT NULL,
+  PRIMARY KEY (`Id`),
+  CONSTRAINT `FK_ProcessTemplateSteps_ProcessTemplates_ProcessTemplateId`
+    FOREIGN KEY (`ProcessTemplateId`) REFERENCES `ProcessTemplates` (`Id`) ON DELETE CASCADE
+);");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("ProcessTemplateSteps 表初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("CREATE INDEX `IX_ProcessTemplates_IsDefault` ON `ProcessTemplates` (`IsDefault`);");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("ProcessTemplates 默认模板索引初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("ALTER TABLE `ProcessTemplates` ADD COLUMN `IsDeleted` TINYINT(1) NOT NULL DEFAULT 0;");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("ProcessTemplates.IsDeleted 列初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("ALTER TABLE `ProcessTemplateSteps` ADD COLUMN `IsDeleted` TINYINT(1) NOT NULL DEFAULT 0;");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("ProcessTemplateSteps.IsDeleted 列初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("CREATE INDEX `IX_ProcessTemplates_IsDeleted_IsDefault` ON `ProcessTemplates` (`IsDeleted`, `IsDefault`);");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("ProcessTemplates 逻辑删除索引初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("CREATE INDEX `IX_ProcessTemplateSteps_ProcessTemplateId_SortOrder` ON `ProcessTemplateSteps` (`ProcessTemplateId`, `SortOrder`);");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("ProcessTemplateSteps 排序索引初始化跳过：{Message}", ex.Message);
+    }
 }
 
 app.Run();

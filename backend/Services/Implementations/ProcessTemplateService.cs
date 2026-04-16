@@ -22,14 +22,25 @@ namespace ProjectManagementSystem.Services.Implementations
 
         public async System.Threading.Tasks.Task<List<ProcessTemplateDto>> GetTemplatesAsync()
         {
-            var data = await LoadDataAsync();
-            return await MapTemplatesAsync(data.Templates.OrderByDescending(t => t.IsDefault).ThenBy(t => t.Id).ToList());
+            await EnsureTemplateDataInitializedAsync();
+            var templates = await _context.ProcessTemplates
+                .AsNoTracking()
+                .Include(t => t.Steps)
+                .OrderByDescending(t => t.IsDefault)
+                .ThenBy(t => t.Id)
+                .ToListAsync();
+
+            return await MapTemplatesAsync(templates);
         }
 
         public async System.Threading.Tasks.Task<ProcessTemplateDto> GetTemplateByIdAsync(int id)
         {
-            var data = await LoadDataAsync();
-            var template = data.Templates.FirstOrDefault(t => t.Id == id);
+            await EnsureTemplateDataInitializedAsync();
+            var template = await _context.ProcessTemplates
+                .AsNoTracking()
+                .Include(t => t.Steps)
+                .FirstOrDefaultAsync(t => t.Id == id);
+
             if (template == null)
             {
                 throw new KeyNotFoundException("项目任务模板不存在");
@@ -40,47 +51,36 @@ namespace ProjectManagementSystem.Services.Implementations
 
         public async System.Threading.Tasks.Task<ProcessTemplateDto> CreateTemplateAsync(CreateProcessTemplateRequest request)
         {
+            await EnsureTemplateDataInitializedAsync();
             await _locker.WaitAsync();
             try
             {
-                var data = await LoadDataAsync();
                 var now = DateTime.UtcNow;
-                var newId = data.Templates.Any() ? data.Templates.Max(t => t.Id) + 1 : 1;
+                var normalizedSteps = BuildStepEntities(request.Steps, now).ToList();
 
                 if (request.IsDefault)
                 {
-                    foreach (var item in data.Templates)
+                    var defaultTemplates = await _context.ProcessTemplates.Where(t => t.IsDefault).ToListAsync();
+                    foreach (var current in defaultTemplates)
                     {
-                        item.IsDefault = false;
-                        item.UpdatedAt = now;
+                        current.IsDefault = false;
+                        current.UpdatedAt = now;
                     }
                 }
 
-                var template = new ProcessTemplateStore
+                var template = new ProcessTemplate
                 {
-                    Id = newId,
                     Name = request.Name,
                     Description = request.Description,
                     IsDefault = request.IsDefault,
                     CreatedAt = now,
                     UpdatedAt = now,
-                    Steps = request.Steps.Select((s, index) => new ProcessStepStore
-                    {
-                        Id = index + 1,
-                        SortOrder = s.SortOrder > 0 ? s.SortOrder : index + 1,
-                        Stage = s.Stage,
-                        Name = s.Name,
-                        Description = s.Description,
-                        Priority = s.Priority,
-                        DefaultAssigneeIds = NormalizeAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId),
-                        DefaultAssigneeId = NormalizeAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId).Cast<int?>().FirstOrDefault(),
-                        EstimatedDays = s.EstimatedDays
-                    }).OrderBy(s => s.SortOrder).ToList()
+                    Steps = normalizedSteps
                 };
 
-                data.Templates.Add(template);
-                await SaveDataAsync(data);
-                return await MapTemplateAsync(template);
+                _context.ProcessTemplates.Add(template);
+                await _context.SaveChangesAsync();
+                return await GetTemplateByIdAsync(template.Id);
             }
             finally
             {
@@ -90,11 +90,14 @@ namespace ProjectManagementSystem.Services.Implementations
 
         public async System.Threading.Tasks.Task<ProcessTemplateDto> UpdateTemplateAsync(int id, UpdateProcessTemplateRequest request)
         {
+            await EnsureTemplateDataInitializedAsync();
             await _locker.WaitAsync();
             try
             {
-                var data = await LoadDataAsync();
-                var template = data.Templates.FirstOrDefault(t => t.Id == id);
+                var template = await _context.ProcessTemplates
+                    .Include(t => t.Steps)
+                    .FirstOrDefaultAsync(t => t.Id == id);
+
                 if (template == null)
                 {
                     throw new KeyNotFoundException("项目任务模板不存在");
@@ -103,10 +106,11 @@ namespace ProjectManagementSystem.Services.Implementations
                 var now = DateTime.UtcNow;
                 if (request.IsDefault)
                 {
-                    foreach (var item in data.Templates)
+                    var defaultTemplates = await _context.ProcessTemplates.Where(t => t.IsDefault && t.Id != id).ToListAsync();
+                    foreach (var current in defaultTemplates)
                     {
-                        item.IsDefault = false;
-                        item.UpdatedAt = now;
+                        current.IsDefault = false;
+                        current.UpdatedAt = now;
                     }
                 }
 
@@ -114,21 +118,21 @@ namespace ProjectManagementSystem.Services.Implementations
                 template.Description = request.Description;
                 template.IsDefault = request.IsDefault;
                 template.UpdatedAt = now;
-                template.Steps = request.Steps.Select((s, index) => new ProcessStepStore
-                {
-                    Id = index + 1,
-                    SortOrder = s.SortOrder > 0 ? s.SortOrder : index + 1,
-                    Stage = s.Stage,
-                    Name = s.Name,
-                    Description = s.Description,
-                    Priority = s.Priority,
-                    DefaultAssigneeIds = NormalizeAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId),
-                    DefaultAssigneeId = NormalizeAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId).Cast<int?>().FirstOrDefault(),
-                    EstimatedDays = s.EstimatedDays
-                }).OrderBy(s => s.SortOrder).ToList();
 
-                await SaveDataAsync(data);
-                return await MapTemplateAsync(template);
+                if (template.Steps.Any())
+                {
+                    _context.ProcessTemplateSteps.RemoveRange(template.Steps);
+                }
+
+                var newSteps = BuildStepEntities(request.Steps, now).ToList();
+                foreach (var step in newSteps)
+                {
+                    step.ProcessTemplateId = template.Id;
+                }
+                _context.ProcessTemplateSteps.AddRange(newSteps);
+
+                await _context.SaveChangesAsync();
+                return await GetTemplateByIdAsync(template.Id);
             }
             finally
             {
@@ -138,23 +142,44 @@ namespace ProjectManagementSystem.Services.Implementations
 
         public async System.Threading.Tasks.Task<bool> DeleteTemplateAsync(int id)
         {
+            await EnsureTemplateDataInitializedAsync();
             await _locker.WaitAsync();
             try
             {
-                var data = await LoadDataAsync();
-                var template = data.Templates.FirstOrDefault(t => t.Id == id);
+                var template = await _context.ProcessTemplates
+                    .Include(t => t.Steps)
+                    .FirstOrDefaultAsync(t => t.Id == id);
+
                 if (template == null)
                 {
                     throw new KeyNotFoundException("项目任务模板不存在");
                 }
 
-                data.Templates.Remove(template);
-                if (!data.Templates.Any(t => t.IsDefault) && data.Templates.Any())
+                var removedDefault = template.IsDefault;
+                var now = DateTime.UtcNow;
+                template.IsDeleted = true;
+                template.IsDefault = false;
+                template.UpdatedAt = now;
+
+                foreach (var step in template.Steps)
                 {
-                    data.Templates.OrderBy(t => t.Id).First().IsDefault = true;
+                    step.IsDeleted = true;
+                    step.UpdatedAt = now;
                 }
 
-                await SaveDataAsync(data);
+                await _context.SaveChangesAsync();
+
+                if (removedDefault)
+                {
+                    var nextDefault = await _context.ProcessTemplates.OrderBy(t => t.Id).FirstOrDefaultAsync();
+                    if (nextDefault != null)
+                    {
+                        nextDefault.IsDefault = true;
+                        nextDefault.UpdatedAt = DateTime.UtcNow;
+                        await _context.SaveChangesAsync();
+                    }
+                }
+
                 return true;
             }
             finally
@@ -165,25 +190,26 @@ namespace ProjectManagementSystem.Services.Implementations
 
         public async System.Threading.Tasks.Task<ProcessTemplateDto> SetDefaultTemplateAsync(int id)
         {
+            await EnsureTemplateDataInitializedAsync();
             await _locker.WaitAsync();
             try
             {
-                var data = await LoadDataAsync();
-                var template = data.Templates.FirstOrDefault(t => t.Id == id);
+                var template = await _context.ProcessTemplates.FirstOrDefaultAsync(t => t.Id == id);
                 if (template == null)
                 {
                     throw new KeyNotFoundException("项目任务模板不存在");
                 }
 
                 var now = DateTime.UtcNow;
-                foreach (var item in data.Templates)
+                var allTemplates = await _context.ProcessTemplates.ToListAsync();
+                foreach (var item in allTemplates)
                 {
                     item.IsDefault = item.Id == id;
                     item.UpdatedAt = now;
                 }
 
-                await SaveDataAsync(data);
-                return await MapTemplateAsync(template);
+                await _context.SaveChangesAsync();
+                return await GetTemplateByIdAsync(template.Id);
             }
             finally
             {
@@ -193,6 +219,8 @@ namespace ProjectManagementSystem.Services.Implementations
 
         public async System.Threading.Tasks.Task<int> ApplyDefaultTemplateToProjectAsync(int projectId, int? fallbackAssigneeId, int operatorUserId, int? templateId = null)
         {
+            await EnsureTemplateDataInitializedAsync();
+
             var project = await _context.Projects
                 .AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == projectId);
@@ -206,11 +234,14 @@ namespace ProjectManagementSystem.Services.Implementations
                 return 0;
             }
 
-            var data = await LoadDataAsync();
-            ProcessTemplateStore? template;
+            ProcessTemplate? template;
             if (templateId.HasValue)
             {
-                template = data.Templates.FirstOrDefault(t => t.Id == templateId.Value);
+                template = await _context.ProcessTemplates
+                    .AsNoTracking()
+                    .Include(t => t.Steps)
+                    .FirstOrDefaultAsync(t => t.Id == templateId.Value);
+
                 if (template == null)
                 {
                     throw new KeyNotFoundException("所选项目任务模板不存在");
@@ -218,10 +249,15 @@ namespace ProjectManagementSystem.Services.Implementations
             }
             else
             {
-                template = data.Templates.FirstOrDefault(t => t.IsDefault) ?? data.Templates.OrderBy(t => t.Id).FirstOrDefault();
+                template = await _context.ProcessTemplates
+                    .AsNoTracking()
+                    .Include(t => t.Steps)
+                    .OrderByDescending(t => t.IsDefault)
+                    .ThenBy(t => t.Id)
+                    .FirstOrDefaultAsync();
             }
 
-            if (template == null || template.Steps.Count == 0)
+            if (template == null || !template.Steps.Any())
             {
                 return 0;
             }
@@ -238,7 +274,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 var dueDate = startDate.AddDays(estimated);
                 previousTaskEndDate = dueDate;
 
-                var preferredAssigneeIds = NormalizeAssigneeIds(step.DefaultAssigneeIds, step.DefaultAssigneeId);
+                var preferredAssigneeIds = ParseAssigneeIds(step.DefaultAssigneeIds, step.DefaultAssigneeId);
                 int? assigneeId = null;
                 if (preferredAssigneeIds.Count > 0)
                 {
@@ -310,19 +346,41 @@ namespace ProjectManagementSystem.Services.Implementations
             return entities.Count;
         }
 
-        private async System.Threading.Tasks.Task<List<ProcessTemplateDto>> MapTemplatesAsync(List<ProcessTemplateStore> templates)
+        private IEnumerable<ProcessTemplateStep> BuildStepEntities(List<ProcessStepRequest>? steps, DateTime now)
+        {
+            var source = steps ?? new List<ProcessStepRequest>();
+            return source.Select((s, index) =>
+            {
+                var assigneeIds = NormalizeAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId);
+                return new ProcessTemplateStep
+                {
+                    SortOrder = s.SortOrder > 0 ? s.SortOrder : index + 1,
+                    Stage = s.Stage,
+                    Name = s.Name,
+                    Description = s.Description,
+                    Priority = s.Priority,
+                    DefaultAssigneeId = assigneeIds.Cast<int?>().FirstOrDefault(),
+                    DefaultAssigneeIds = SerializeAssigneeIds(assigneeIds),
+                    EstimatedDays = s.EstimatedDays,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+            }).OrderBy(s => s.SortOrder).ToList();
+        }
+
+        private async System.Threading.Tasks.Task<List<ProcessTemplateDto>> MapTemplatesAsync(List<ProcessTemplate> templates)
         {
             var users = await _context.Users.AsNoTracking().ToDictionaryAsync(u => u.Id, u => u.Username);
             return templates.Select(t => MapTemplate(t, users)).ToList();
         }
 
-        private async System.Threading.Tasks.Task<ProcessTemplateDto> MapTemplateAsync(ProcessTemplateStore template)
+        private async System.Threading.Tasks.Task<ProcessTemplateDto> MapTemplateAsync(ProcessTemplate template)
         {
             var users = await _context.Users.AsNoTracking().ToDictionaryAsync(u => u.Id, u => u.Username);
             return MapTemplate(template, users);
         }
 
-        private static ProcessTemplateDto MapTemplate(ProcessTemplateStore template, Dictionary<int, string> users)
+        private static ProcessTemplateDto MapTemplate(ProcessTemplate template, Dictionary<int, string> users)
         {
             return new ProcessTemplateDto
             {
@@ -332,27 +390,142 @@ namespace ProjectManagementSystem.Services.Implementations
                 IsDefault = template.IsDefault,
                 CreatedAt = template.CreatedAt,
                 UpdatedAt = template.UpdatedAt,
-                Steps = template.Steps.OrderBy(s => s.SortOrder).Select(s => new ProcessStepDto
+                Steps = template.Steps.OrderBy(s => s.SortOrder).Select(s =>
                 {
-                    Id = s.Id,
-                    SortOrder = s.SortOrder,
-                    Stage = s.Stage,
-                    Name = s.Name,
-                    Description = s.Description,
-                    Priority = s.Priority,
-                    DefaultAssigneeId = NormalizeAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId).Cast<int?>().FirstOrDefault(),
-                    DefaultAssigneeName = NormalizeAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId)
-                        .Select(id => users.TryGetValue(id, out var username) ? username : null)
-                        .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)),
-                    DefaultAssigneeIds = NormalizeAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId),
-                    DefaultAssigneeNames = NormalizeAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId)
+                    var assigneeIds = ParseAssigneeIds(s.DefaultAssigneeIds, s.DefaultAssigneeId);
+                    var assigneeNames = assigneeIds
                         .Select(id => users.TryGetValue(id, out var username) ? username : null)
                         .Where(name => !string.IsNullOrWhiteSpace(name))
                         .Select(name => name!)
-                        .ToList(),
-                    EstimatedDays = s.EstimatedDays
+                        .ToList();
+
+                    return new ProcessStepDto
+                    {
+                        Id = s.Id,
+                        SortOrder = s.SortOrder,
+                        Stage = s.Stage,
+                        Name = s.Name,
+                        Description = s.Description,
+                        Priority = s.Priority,
+                        DefaultAssigneeId = assigneeIds.Cast<int?>().FirstOrDefault(),
+                        DefaultAssigneeName = assigneeNames.FirstOrDefault(),
+                        DefaultAssigneeIds = assigneeIds,
+                        DefaultAssigneeNames = assigneeNames,
+                        EstimatedDays = s.EstimatedDays
+                    };
                 }).ToList()
             };
+        }
+
+        private async System.Threading.Tasks.Task EnsureTemplateDataInitializedAsync()
+        {
+            if (await _context.ProcessTemplates.IgnoreQueryFilters().AnyAsync())
+            {
+                return;
+            }
+
+            await _locker.WaitAsync();
+            try
+            {
+                if (await _context.ProcessTemplates.IgnoreQueryFilters().AnyAsync())
+                {
+                    return;
+                }
+
+                var now = DateTime.UtcNow;
+                var legacyData = await LoadLegacyDataAsync();
+                var sourceTemplates = legacyData?.Templates?.Any() == true
+                    ? legacyData.Templates.OrderBy(t => t.Id).ToList()
+                    : CreateDefaultTemplateData().Templates;
+
+                var entities = sourceTemplates.Select(template =>
+                {
+                    var templateEntity = new ProcessTemplate
+                    {
+                        Name = template.Name,
+                        Description = template.Description,
+                        IsDefault = template.IsDefault,
+                        CreatedAt = template.CreatedAt == default ? now : template.CreatedAt,
+                        UpdatedAt = template.UpdatedAt == default ? now : template.UpdatedAt,
+                        Steps = template.Steps
+                            .OrderBy(s => s.SortOrder)
+                            .Select(step =>
+                            {
+                                var assigneeIds = NormalizeAssigneeIds(step.DefaultAssigneeIds, step.DefaultAssigneeId);
+                                return new ProcessTemplateStep
+                                {
+                                    SortOrder = step.SortOrder,
+                                    Stage = step.Stage,
+                                    Name = step.Name,
+                                    Description = step.Description,
+                                    Priority = step.Priority,
+                                    DefaultAssigneeId = assigneeIds.Cast<int?>().FirstOrDefault(),
+                                    DefaultAssigneeIds = SerializeAssigneeIds(assigneeIds),
+                                    EstimatedDays = step.EstimatedDays,
+                                    CreatedAt = now,
+                                    UpdatedAt = now
+                                };
+                            }).ToList()
+                    };
+
+                    return templateEntity;
+                }).ToList();
+
+                if (!entities.Any())
+                {
+                    return;
+                }
+
+                if (!entities.Any(t => t.IsDefault))
+                {
+                    entities[0].IsDefault = true;
+                }
+
+                _context.ProcessTemplates.AddRange(entities);
+                await _context.SaveChangesAsync();
+            }
+            finally
+            {
+                _locker.Release();
+            }
+        }
+
+        private async System.Threading.Tasks.Task<LegacyTemplateDataStore?> LoadLegacyDataAsync()
+        {
+            var path = GetLegacyStorePath();
+            if (!System.IO.File.Exists(path))
+            {
+                return null;
+            }
+
+            try
+            {
+                var json = await System.IO.File.ReadAllTextAsync(path);
+                var data = JsonSerializer.Deserialize<LegacyTemplateDataStore>(json, JsonOptions());
+                return data;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private string GetLegacyStorePath()
+        {
+            return Path.Combine(_environment.ContentRootPath, "Data", "process-templates.json");
+        }
+
+        private static string BuildDescription(ProcessTemplateStep step, List<string>? assigneeNames = null)
+        {
+            var description = step.Description ?? string.Empty;
+            var details = $"阶段：{step.Stage}\n预计工期：{step.EstimatedDays} 天";
+
+            if (assigneeNames != null && assigneeNames.Any())
+            {
+                details += $"\n默认负责人：{string.Join("、", assigneeNames.Distinct())}";
+            }
+
+            return string.IsNullOrWhiteSpace(description) ? details : $"{description}\n\n{details}";
         }
 
         private static List<int> NormalizeAssigneeIds(List<int>? ids, int? fallbackId)
@@ -370,37 +543,32 @@ namespace ProjectManagementSystem.Services.Implementations
             return result;
         }
 
-        private async System.Threading.Tasks.Task<TemplateDataStore> LoadDataAsync()
+        private static List<int> ParseAssigneeIds(string? idsText, int? fallbackId)
         {
-            var path = GetStorePath();
-            if (!System.IO.File.Exists(path))
+            var ids = new List<int>();
+            if (!string.IsNullOrWhiteSpace(idsText))
             {
-                var initial = CreateDefaultTemplateData();
-                await SaveDataAsync(initial);
-                return initial;
+                foreach (var part in idsText.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (int.TryParse(part.Trim(), out var value) && value > 0)
+                    {
+                        ids.Add(value);
+                    }
+                }
             }
 
-            var json = await System.IO.File.ReadAllTextAsync(path);
-            var data = JsonSerializer.Deserialize<TemplateDataStore>(json, JsonOptions());
-            return data ?? new TemplateDataStore();
-        }
-
-        private async System.Threading.Tasks.Task SaveDataAsync(TemplateDataStore data)
-        {
-            var path = GetStorePath();
-            var dir = Path.GetDirectoryName(path)!;
-            if (!Directory.Exists(dir))
+            ids = ids.Distinct().ToList();
+            if (!ids.Any() && fallbackId.HasValue && fallbackId.Value > 0)
             {
-                Directory.CreateDirectory(dir);
+                ids.Add(fallbackId.Value);
             }
 
-            var json = JsonSerializer.Serialize(data, JsonOptions());
-            await System.IO.File.WriteAllTextAsync(path, json);
+            return ids;
         }
 
-        private string GetStorePath()
+        private static string SerializeAssigneeIds(List<int> ids)
         {
-            return Path.Combine(_environment.ContentRootPath, "Data", "process-templates.json");
+            return string.Join(',', ids.Where(id => id > 0).Distinct());
         }
 
         private static JsonSerializerOptions JsonOptions() => new()
@@ -409,25 +577,12 @@ namespace ProjectManagementSystem.Services.Implementations
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
-        private static string BuildDescription(ProcessStepStore step, List<string>? assigneeNames = null)
-        {
-            var description = step.Description ?? string.Empty;
-            var details = $"阶段：{step.Stage}\n预计工期：{step.EstimatedDays} 天";
-
-            if (assigneeNames != null && assigneeNames.Any())
-            {
-                details += $"\n默认负责人：{string.Join("、", assigneeNames.Distinct())}";
-            }
-
-            return string.IsNullOrWhiteSpace(description) ? details : $"{description}\n\n{details}";
-        }
-
-        private static TemplateDataStore CreateDefaultTemplateData()
+        private static LegacyTemplateDataStore CreateDefaultTemplateData()
         {
             var now = DateTime.UtcNow;
-            return new TemplateDataStore
+            return new LegacyTemplateDataStore
             {
-                Templates = new List<ProcessTemplateStore>
+                Templates = new List<LegacyProcessTemplateStore>
                 {
                     new()
                     {
@@ -437,7 +592,7 @@ namespace ProjectManagementSystem.Services.Implementations
                         IsDefault = true,
                         CreatedAt = now,
                         UpdatedAt = now,
-                        Steps = new List<ProcessStepStore>
+                        Steps = new List<LegacyProcessStepStore>
                         {
                             new() { Id = 1, SortOrder = 1, Stage = "售前", Name = "售前需求澄清", Priority = 3, EstimatedDays = 2 },
                             new() { Id = 2, SortOrder = 2, Stage = "售前", Name = "现场踏勘与负荷调研", Priority = 4, EstimatedDays = 4 },
@@ -463,12 +618,12 @@ namespace ProjectManagementSystem.Services.Implementations
             };
         }
 
-        private class TemplateDataStore
+        private class LegacyTemplateDataStore
         {
-            public List<ProcessTemplateStore> Templates { get; set; } = new();
+            public List<LegacyProcessTemplateStore> Templates { get; set; } = new();
         }
 
-        private class ProcessTemplateStore
+        private class LegacyProcessTemplateStore
         {
             public int Id { get; set; }
             public string Name { get; set; } = string.Empty;
@@ -476,10 +631,10 @@ namespace ProjectManagementSystem.Services.Implementations
             public bool IsDefault { get; set; }
             public DateTime CreatedAt { get; set; }
             public DateTime UpdatedAt { get; set; }
-            public List<ProcessStepStore> Steps { get; set; } = new();
+            public List<LegacyProcessStepStore> Steps { get; set; } = new();
         }
 
-        private class ProcessStepStore
+        private class LegacyProcessStepStore
         {
             public int Id { get; set; }
             public int SortOrder { get; set; }

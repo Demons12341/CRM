@@ -158,7 +158,7 @@ const fetchDashboardData = async () => {
     const [statsRes, tasksRes, alertsRes] = await Promise.all([
       request.get('/dashboard/overview'),
       request.get('/dashboard/my-tasks'),
-      request.get('/alerts?pageSize=5')
+      request.get('/alerts?pageSize=5&alertStatus=0')
     ])
 
     stats.value = statsRes.data

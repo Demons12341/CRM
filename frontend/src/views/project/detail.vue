@@ -64,8 +64,9 @@
             </div>
             <div class="gantt-body">
               <div v-for="item in ganttRows" :key="item.id" class="gantt-row">
-                <div class="gantt-info">
+                <div class="gantt-info gantt-info-clickable" @click="goToTaskDetail(item.id)">
                   <div class="gantt-label" :title="item.title">{{ item.title }}</div>
+                  <div class="gantt-click-hint">点击查看任务详情</div>
                   <div class="gantt-subtext">责任人：{{ item.assigneeText }}</div>
                 </div>
                 <div class="gantt-track">
@@ -537,6 +538,14 @@ const goBack = () => {
   router.push('/projects')
 }
 
+const goToTaskDetail = (taskId: number) => {
+  if (!Number.isFinite(taskId) || taskId <= 0) {
+    return
+  }
+
+  router.push(`/tasks/${taskId}`)
+}
+
 onMounted(async () => {
   await Promise.all([fetchProjectDetail(), fetchMembers(), fetchProjectTasks(), fetchUsers()])
 })
@@ -723,16 +732,37 @@ onMounted(async () => {
   border-right: 1px solid var(--el-border-color-lighter);
 }
 
+.gantt-info-clickable {
+  cursor: pointer;
+  background: var(--el-color-primary-light-9);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.gantt-info-clickable:hover {
+  background: var(--el-color-primary-light-8);
+  box-shadow: inset 0 0 0 1px var(--el-color-primary-light-5);
+}
+
 .gantt-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--el-text-color-primary);
+  color: var(--el-color-primary);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   font-size: 13px;
 }
 
+.gantt-click-hint {
+  margin-top: 3px;
+  color: var(--el-color-primary);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
 .gantt-subtext {
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
   overflow: hidden;

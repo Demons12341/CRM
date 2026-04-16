@@ -22,6 +22,8 @@ namespace ProjectManagementSystem.Data
         public DbSet<File> Files { get; set; }
         public DbSet<TaskLog> TaskLogs { get; set; }
         public DbSet<Alert> Alerts { get; set; }
+        public DbSet<ProcessTemplate> ProcessTemplates { get; set; }
+        public DbSet<ProcessTemplateStep> ProcessTemplateSteps { get; set; }
 
         public override int SaveChanges()
         {
@@ -207,6 +209,25 @@ namespace ProjectManagementSystem.Data
                     .WithMany(u => u.Alerts)
                     .HasForeignKey(e => e.UserId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // 配置ProcessTemplate实体
+            modelBuilder.Entity<ProcessTemplate>(entity =>
+            {
+                entity.HasQueryFilter(e => !e.IsDeleted);
+                entity.HasIndex(e => e.IsDefault);
+                entity.HasIndex(e => new { e.IsDeleted, e.IsDefault });
+            });
+
+            // 配置ProcessTemplateStep实体
+            modelBuilder.Entity<ProcessTemplateStep>(entity =>
+            {
+                entity.HasQueryFilter(e => !e.IsDeleted);
+                entity.HasIndex(e => new { e.ProcessTemplateId, e.SortOrder });
+                entity.HasOne(e => e.ProcessTemplate)
+                    .WithMany(t => t.Steps)
+                    .HasForeignKey(e => e.ProcessTemplateId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             // 初始化角色数据

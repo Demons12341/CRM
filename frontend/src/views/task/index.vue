@@ -49,14 +49,16 @@
           <div class="search-bar">
             <el-input v-model="searchForm.keyword" placeholder="搜索任务名称" clearable style="width: 200px;"
               @keyup.enter="handleSearch" />
-            <el-select v-model="searchForm.status" placeholder="任务状态" clearable style="width: 150px;">
-              <el-option label="待办" :value="0" />
-              <el-option label="进行中" :value="1" />
-              <el-option label="已完成" :value="2" />
-              <el-option label="已取消" :value="3" />
-            </el-select>
             <el-button type="primary" @click="handleSearch">搜索</el-button>
             <el-button @click="resetSearch">重置</el-button>
+            <el-tooltip
+              :content="searchForm.sortBy === 'urgency' ? '当前：按任务紧急排序；点击后切换为按任务顺序排序' : '当前：按任务顺序排序；点击后切换为按任务紧急排序'"
+              placement="top"
+            >
+              <el-button :type="searchForm.sortBy === 'urgency' ? 'danger' : 'primary'" @click="togglePrioritySort">
+                {{ searchForm.sortBy === 'urgency' ? '按任务紧急排序' : '按任务顺序排序' }}
+              </el-button>
+            </el-tooltip>
             <el-button type="success"
               :disabled="!selectedTask || !canOperateTask(selectedTask) || selectedTask.status !== 0"
               @click="updateSelectedTaskStatus(1)">
@@ -67,10 +69,12 @@
               @click="updateSelectedTaskStatus(2)">
               完成
             </el-button>
-            <el-button type="warning" :disabled="!selectedTask || !canClaimTask(selectedTask)" @click="claimSelectedTask">
+            <el-button type="warning" :disabled="!selectedTask || !canClaimTask(selectedTask)"
+              @click="claimSelectedTask">
               认领任务
             </el-button>
-            <el-button type="primary" :disabled="!selectedTask || !canOperateTask(selectedTask)" @click="openDueDateDialog">
+            <el-button type="primary" :disabled="!selectedTask || !canOperateTask(selectedTask)"
+              @click="openDueDateDialog">
               修改预计截止日期
             </el-button>
           </div>
@@ -159,7 +163,8 @@
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px">
         <el-form-item label="所属项目" prop="projectId">
           <el-input v-if="!isEdit && searchForm.projectId" :model-value="selectedProjectNameForCreate" disabled />
-          <el-select v-else v-model="form.projectId" placeholder="请选择项目" filterable @change="() => (form.assigneeIds = [])">
+          <el-select v-else v-model="form.projectId" placeholder="请选择项目" filterable
+            @change="() => (form.assigneeIds = [])">
             <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
           </el-select>
         </el-form-item>
@@ -326,7 +331,8 @@ const searchForm = reactive({
   projectId: undefined as number | undefined,
   status: undefined as number | undefined,
   overdueOnly: false,
-  myOpenScope: false
+  myOpenScope: false,
+  sortBy: 'urgency' as 'urgency' | 'progress'
 })
 
 const pagination = reactive({
@@ -533,6 +539,14 @@ const syncListRouteQuery = (options?: { focusTaskId?: number | null }) => {
     delete nextQuery.myOpenScope
   }
 
+  if (searchForm.sortBy === 'urgency') {
+    nextQuery.sortBy = 'urgency'
+  } else if (searchForm.sortBy === 'progress') {
+    nextQuery.sortBy = 'progress'
+  } else {
+    delete nextQuery.sortBy
+  }
+
   if (options && Object.prototype.hasOwnProperty.call(options, 'focusTaskId')) {
     const nextFocusTaskId = Number(options.focusTaskId || 0)
     if (nextFocusTaskId > 0) {
@@ -569,6 +583,8 @@ const fetchTasks = async () => {
     if (searchForm.status !== undefined) params.status = searchForm.status
     if (searchForm.overdueOnly) params.overdueOnly = true
     if (searchForm.myOpenScope) params.myOpenScope = true
+    if (searchForm.sortBy === 'urgency') params.sortBy = 'urgency'
+    if (searchForm.sortBy === 'progress') params.sortBy = 'progress'
 
     const res = await request.get('/tasks', { params, headers: { 'X-Silent-Error': '1' } })
     tasks.value = res.data.items || []
@@ -713,6 +729,12 @@ const resetSearch = () => {
   searchForm.status = undefined
   searchForm.overdueOnly = false
   searchForm.myOpenScope = false
+  searchForm.sortBy = 'urgency'
+  handleSearch()
+}
+
+const togglePrioritySort = () => {
+  searchForm.sortBy = searchForm.sortBy === 'urgency' ? 'progress' : 'urgency'
   handleSearch()
 }
 
@@ -1134,6 +1156,7 @@ const viewTask = (id: number) => {
       projectId: searchForm.projectId ? String(searchForm.projectId) : undefined,
       overdueOnly: searchForm.overdueOnly ? 'true' : undefined,
       myOpenScope: searchForm.myOpenScope ? 'true' : undefined,
+      sortBy: searchForm.sortBy === 'urgency' ? 'urgency' : (searchForm.sortBy === 'progress' ? 'progress' : undefined),
       focusTaskId: String(id)
     }
   })
@@ -1198,6 +1221,9 @@ onMounted(async () => {
 
   searchForm.overdueOnly = route.query.overdueOnly === 'true'
   searchForm.myOpenScope = route.query.myOpenScope === 'true'
+  searchForm.sortBy = route.query.sortBy === 'progress'
+    ? 'progress'
+    : (route.query.sortBy === 'urgency' || route.query.sortBy === 'priority' ? 'urgency' : 'urgency')
   const queryProjectId = Number(route.query.projectId)
   const queryFocusTaskId = Number(route.query.focusTaskId)
   if (!Number.isNaN(queryProjectId) && queryProjectId > 0) {
@@ -1363,7 +1389,9 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
   margin-bottom: 20px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: center;
 }
 
 .content-area {

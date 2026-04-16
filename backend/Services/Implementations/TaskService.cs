@@ -101,11 +101,20 @@ namespace ProjectManagementSystem.Services.Implementations
             var totalCount = await query.CountAsync();
             var totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize);
 
-            var tasks = await query
-                .OrderByDescending(t => t.Project.Priority)
-                .ThenByDescending(t => t.UpdatedAt)
-                .ThenByDescending(t => t.CreatedAt)
-                .ThenBy(t => t.Id)
+            var normalizedSortBy = (request.SortBy ?? string.Empty).Trim().ToLowerInvariant();
+            var orderedQuery = normalizedSortBy switch
+            {
+                "urgency" or "priority" => query
+                    .OrderBy(t => t.Status == 2 || t.Status == 3 ? 1 : 0)
+                    .ThenBy(t => (t.Status == 0 || t.Status == 1) && t.DueDate.HasValue ? 0 : 1)
+                    .ThenBy(t => (t.Status == 0 || t.Status == 1) && t.DueDate.HasValue ? t.DueDate : DateTime.MaxValue)
+                    .ThenByDescending(t => t.Priority)
+                    .ThenBy(t => t.Id),
+                _ => query
+                    .OrderBy(t => t.Id)
+            };
+
+            var tasks = await orderedQuery
                 .Skip((request.Page - 1) * request.PageSize)
                 .Take(request.PageSize)
                 .Select(t => new TaskDto
@@ -121,8 +130,8 @@ namespace ProjectManagementSystem.Services.Implementations
                     AssigneeDisplay = null,
                     MilestoneId = t.MilestoneId,
                     MilestoneName = t.Milestone != null ? t.Milestone.Name : null,
-                    Priority = t.Project.Priority,
-                    PriorityName = GetPriorityName(t.Project.Priority),
+                    Priority = t.Priority,
+                    PriorityName = GetPriorityName(t.Priority),
                     Status = t.Status,
                     StatusName = GetStatusName(t.Status),
                     StartDate = t.StartDate,
