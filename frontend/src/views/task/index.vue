@@ -35,6 +35,9 @@
               <span class="project-tree-node">
                 <span class="project-tree-name" :title="data.name">{{ data.name }}</span>
                 <span class="project-tree-meta">
+                  <el-tag size="small" class="project-manager-tag" type="info" :title="data.managerDisplay">
+                    负责人 · {{ data.managerDisplay }}
+                  </el-tag>
                   <span class="project-tree-badge" :class="data.statusClass">{{ data.statusName }}</span>
                   <span v-if="data.projectOverdue" class="project-tree-badge danger">项目超期</span>
                   <span v-if="data.taskOverdue" class="project-tree-badge danger">任务超期</span>
@@ -53,8 +56,7 @@
             <el-button @click="resetSearch">重置</el-button>
             <el-tooltip
               :content="searchForm.sortBy === 'urgency' ? '当前：按任务紧急排序；点击后切换为按任务顺序排序' : '当前：按任务顺序排序；点击后切换为按任务紧急排序'"
-              placement="top"
-            >
+              placement="top">
               <el-button :type="searchForm.sortBy === 'urgency' ? 'danger' : 'primary'" @click="togglePrioritySort">
                 {{ searchForm.sortBy === 'urgency' ? '按任务紧急排序' : '按任务顺序排序' }}
               </el-button>
@@ -82,18 +84,16 @@
           <div class="content-area">
             <div v-if="searchForm.projectId">
               <el-table ref="taskTableRef" :data="tasks" style="width: 100%;" v-loading="loading" :fit="true"
-                @selection-change="handleSelectionChange" @row-click="handleRowClick">
+                :row-class-name="getTaskRowClass" @selection-change="handleSelectionChange" @row-click="handleRowClick">
                 <el-table-column type="selection" width="50" />
                 <el-table-column prop="title" label="任务名称" min-width="160" show-overflow-tooltip>
                   <template #default="{ row }">
                     <el-link type="primary" @click="viewTask(row.id)">
-                      {{ row.title }}
+                      <span class="task-title-text" :class="{ 'task-title-overdue': isTaskOverdueRow(row) }">
+                        <span v-if="isTaskOverdueRow(row)" class="task-overdue-dot">!</span>
+                        {{ row.title }}
+                      </span>
                     </el-link>
-                  </template>
-                </el-table-column>
-                <el-table-column label="所属项目  (负责人)" min-width="160" show-overflow-tooltip>
-                  <template #default="{ row }">
-                    {{ getProjectDisplayName(row) }}
                   </template>
                 </el-table-column>
                 <el-table-column label="责任人" min-width="130" show-overflow-tooltip>
@@ -101,16 +101,50 @@
                     {{ row.assigneeDisplay || row.assigneeName || '-' }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="priority" label="优先级" min-width="80">
+                <el-table-column prop="priority" label="优先级" min-width="126" class-name="priority-cell">
                   <template #default="{ row }">
-                    <el-tag :type="getPriorityType(row.priority)" size="small">
+                    <el-select v-if="canOperateTask(row)" :model-value="row.priority" size="small"
+                      :class="['biz-inline-select', getPriorityVisualClass(row.priority)]"
+                      popper-class="task-inline-select-popper" :fit-input-width="false"
+                      :disabled="rowPriorityUpdatingId === row.id || rowStatusUpdatingId === row.id"
+                      @change="(value: number) => handleRowPriorityChange(row, Number(value))">
+                      <template #prefix>
+                        <span class="biz-select-dot" :class="getPriorityVisualClass(row.priority)"></span>
+                      </template>
+                      <el-option v-for="item in priorityOptions" :key="item.value" :label="item.label"
+                        :value="item.value">
+                        <span class="biz-option-row" :class="getPriorityVisualClass(item.value)">
+                          <span class="biz-option-dot"></span>
+                          <span>{{ item.label }}</span>
+                        </span>
+                      </el-option>
+                    </el-select>
+                    <el-tag v-else :type="getPriorityType(row.priority)" size="small" class="inline-cell-tag"
+                      :class="getPriorityVisualClass(row.priority)">
                       {{ getPriorityName(row.priority) }}
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="status" label="状态" min-width="90">
+                <el-table-column prop="status" label="状态" min-width="132" class-name="status-cell">
                   <template #default="{ row }">
-                    <el-tag :type="getStatusType(row.status)">
+                    <el-select v-if="canOperateTask(row)" :model-value="row.status" size="small"
+                      :class="['biz-inline-select', getStatusVisualClass(row.status)]"
+                      popper-class="task-inline-select-popper" :fit-input-width="false"
+                      :disabled="rowPriorityUpdatingId === row.id || rowStatusUpdatingId === row.id"
+                      @change="(value: number) => handleRowStatusChange(row, Number(value))">
+                      <template #prefix>
+                        <span class="biz-select-dot" :class="getStatusVisualClass(row.status)"></span>
+                      </template>
+                      <el-option v-for="item in statusOptions" :key="item.value" :label="item.label"
+                        :value="item.value">
+                        <span class="biz-option-row" :class="getStatusVisualClass(item.value)">
+                          <span class="biz-option-dot"></span>
+                          <span>{{ item.label }}</span>
+                        </span>
+                      </el-option>
+                    </el-select>
+                    <el-tag v-else :type="getStatusType(row.status)" class="inline-cell-tag"
+                      :class="getStatusVisualClass(row.status)">
                       {{ getStatusName(row.status) }}
                     </el-tag>
                   </template>
@@ -135,7 +169,6 @@
                     <div class="action-inline">
                       <el-button type="primary" link @click="viewTask(row.id)">查看</el-button>
                       <el-button v-if="canClaimTask(row)" type="warning" link @click="claimTask(row)">认领</el-button>
-                      <el-button type="primary" link @click="editTask(row)">编辑</el-button>
                       <el-popconfirm title="确定要删除这个任务吗？" @confirm="deleteTask(row.id)">
                         <template #reference>
                           <el-button type="danger" link>删除</el-button>
@@ -316,7 +349,23 @@ const projectSearchKeyword = ref('')
 const projectAccessDenied = ref(false)
 const overdueTaskProjectIds = ref<Set<number>>(new Set())
 const pendingFocusTaskId = ref<number | null>(null)
+const rowPriorityUpdatingId = ref<number | null>(null)
+const rowStatusUpdatingId = ref<number | null>(null)
 const SHARED_FOLDER_PROJECT_NAME = '共享文件夹'
+
+const priorityOptions = [
+  { value: 1, label: '低' },
+  { value: 2, label: '中' },
+  { value: 3, label: '高' },
+  { value: 4, label: '紧急' }
+]
+
+const statusOptions = [
+  { value: 0, label: '待办' },
+  { value: 1, label: '进行中' },
+  { value: 2, label: '已完成' },
+  { value: 3, label: '已取消' }
+]
 
 const dueDateForm = reactive({
   dueDate: ''
@@ -459,10 +508,12 @@ const filteredProjectTreeData = computed(() => {
 
   return matched.map((item: any) => {
     const statusMeta = buildProjectStatusSummary(item)
+    const managerName = `${item?.managerName || item?.projectManagerName || '-'}`.trim() || '-'
     return {
       id: item.id,
       label: item.name,
       name: item.name,
+      managerDisplay: managerName,
       statusName: statusMeta.statusName,
       statusClass: statusMeta.statusClass,
       projectOverdue: statusMeta.projectOverdue,
@@ -473,18 +524,6 @@ const filteredProjectTreeData = computed(() => {
 
 const getUserLabel = (user: any) => {
   return user.realName ? `${user.realName} (${user.username})` : user.username
-}
-
-const getProjectDisplayName = (row: any) => {
-  const projectName = row?.projectName || '-'
-  const project = projects.value.find((item: any) => Number(item.id) === Number(row?.projectId))
-  const managerName = project?.managerName
-
-  if (!managerName) {
-    return projectName
-  }
-
-  return `${projectName}（${managerName}）`
 }
 
 const getApiErrorMessage = (error: any, fallback: string) => {
@@ -787,33 +826,6 @@ const canClaimTask = (row: any) => {
   return !isCurrentUserAssignee(row)
 }
 
-const editTask = (row: any) => {
-  if (!canOperateTask(row)) {
-    ElMessage.warning('项目成员仅可修改自己负责的任务')
-    return
-  }
-
-  isEdit.value = true
-  editId.value = row.id
-  Object.assign(form, {
-    projectId: row.projectId,
-    title: row.title,
-    description: row.description,
-    assigneeIds: (row.assigneeIds && row.assigneeIds.length) ? [...row.assigneeIds] : (row.assigneeId ? [row.assigneeId] : []),
-    startDate: row.startDate,
-    dueDate: row.dueDate
-  })
-  originalEditForm.value = {
-    projectId: form.projectId,
-    title: form.title,
-    description: form.description,
-    assigneeIds: [...form.assigneeIds],
-    startDate: form.startDate,
-    dueDate: form.dueDate
-  }
-  dialogVisible.value = true
-}
-
 const resetForm = () => {
   Object.assign(form, {
     projectId: undefined,
@@ -931,6 +943,93 @@ const claimSelectedTask = async () => {
   }
 
   await claimTask(selectedTask.value)
+}
+
+const applyTaskRowUpdate = (updatedTask: any) => {
+  if (!updatedTask?.id) {
+    return
+  }
+
+  const targetId = Number(updatedTask.id)
+  const index = tasks.value.findIndex((item: any) => Number(item.id) === targetId)
+  if (index >= 0) {
+    tasks.value[index] = {
+      ...tasks.value[index],
+      ...updatedTask
+    }
+  }
+
+  if (selectedTask.value && Number(selectedTask.value.id) === targetId) {
+    selectedTask.value = {
+      ...selectedTask.value,
+      ...updatedTask
+    }
+  }
+}
+
+const handleRowPriorityChange = async (row: any, nextPriority: number) => {
+  if (!row || !row.id) {
+    return
+  }
+
+  const oldPriority = Number(row.priority)
+  if (oldPriority === nextPriority) {
+    return
+  }
+
+  applyTaskRowUpdate({ id: row.id, priority: nextPriority })
+  rowPriorityUpdatingId.value = Number(row.id)
+  try {
+    const res = await request.put(`/tasks/${row.id}`, { priority: nextPriority }, { headers: { 'X-Silent-Error': '1' } })
+    applyTaskRowUpdate(res?.data || { id: row.id, priority: nextPriority })
+    ElMessage.success('优先级已更新')
+  } catch (error) {
+    applyTaskRowUpdate({ id: row.id, priority: oldPriority })
+    const message = (error as any)?.response?.data?.message || '优先级更新失败'
+    ElMessage.warning(message)
+  } finally {
+    rowPriorityUpdatingId.value = null
+  }
+}
+
+const handleRowStatusChange = async (row: any, nextStatus: number) => {
+  if (!row || !row.id) {
+    return
+  }
+
+  const oldStatus = Number(row.status)
+  if (oldStatus === nextStatus) {
+    return
+  }
+
+  applyTaskRowUpdate({ id: row.id, status: nextStatus })
+  rowStatusUpdatingId.value = Number(row.id)
+  try {
+    const res = await request.put(`/tasks/${row.id}/status`, { status: nextStatus }, { headers: { 'X-Silent-Error': '1' } })
+    applyTaskRowUpdate(res?.data || { id: row.id, status: nextStatus })
+    ElMessage.success('状态已更新')
+  } catch (error) {
+    applyTaskRowUpdate({ id: row.id, status: oldStatus })
+    const message = (error as any)?.response?.data?.message || ''
+    if (nextStatus === 2 && `${message}`.includes('提交一次工作内容')) {
+      ElMessage.warning('请先填写并提交工作内容')
+      router.push({
+        path: `/tasks/${row.id}`,
+        query: {
+          needWorkContent: 'true',
+          projectId: searchForm.projectId ? String(searchForm.projectId) : undefined,
+          overdueOnly: searchForm.overdueOnly ? 'true' : undefined,
+          myOpenScope: searchForm.myOpenScope ? 'true' : undefined,
+          focusTaskId: String(row.id)
+        }
+      })
+      return
+    }
+
+    ElMessage.warning(message || '状态更新失败')
+  } finally {
+    rowStatusUpdatingId.value = null
+  }
 }
 
 const quickUpdateStatus = async (id: number, status: number) => {
@@ -1202,6 +1301,28 @@ const getStatusName = (status: number) => {
   return names[status] || '未知'
 }
 
+const getPriorityVisualClass = (priority: number) => {
+  const classMap: Record<number, string> = {
+    1: 'is-low',
+    2: 'is-medium',
+    3: 'is-high',
+    4: 'is-urgent'
+  }
+
+  return classMap[priority] || 'is-low'
+}
+
+const getStatusVisualClass = (status: number) => {
+  const classMap: Record<number, string> = {
+    0: 'is-todo',
+    1: 'is-progress',
+    2: 'is-done',
+    3: 'is-cancelled'
+  }
+
+  return classMap[status] || 'is-todo'
+}
+
 const formatDate = (date: string) => {
   if (!date) return '-'
   return dayjs(date).format('YYYY-MM-DD')
@@ -1211,6 +1332,22 @@ const isCompletedLate = (row: any) => {
   if (!row || row.status !== 2) return false
   if (!row.completedAt || !row.dueDate) return false
   return dayjs(row.completedAt).isAfter(dayjs(row.dueDate))
+}
+
+const isTaskOverdueRow = (row: any) => {
+  return !!row?.isOverdue
+}
+
+const getTaskRowClass = ({ row }: { row: any }) => {
+  if (isTaskOverdueRow(row)) {
+    return 'task-row-overdue'
+  }
+
+  if (isCompletedLate(row)) {
+    return 'task-row-completed-late'
+  }
+
+  return ''
 }
 
 onMounted(async () => {
@@ -1246,15 +1383,35 @@ onMounted(async () => {
 
 <style scoped>
 .task-page {
-  padding: 10px;
-  min-height: calc(100vh - 120px);
+  --biz-bg-top: #eff5ff;
+  --biz-bg-bottom: #f6fbf8;
+  --biz-card-bg: rgba(255, 255, 255, 0.94);
+  --biz-card-border: #d7e4f8;
+  --biz-text-strong: #0f3b8c;
+  --biz-text-muted: #5f6b7a;
+  --biz-accent-soft: #eaf1ff;
+  padding: 12px;
+  height: 100%;
+  min-height: 0;
   display: flex;
+  overflow: hidden;
+  background: #f5f8fc;
 }
 
 .task-page :deep(.el-card) {
   width: 100%;
   display: flex;
   flex-direction: column;
+  border-radius: 16px;
+  border: 1px solid var(--biz-card-border);
+  background: var(--biz-card-bg);
+  box-shadow: 0 18px 40px rgba(36, 66, 135, 0.12);
+  overflow: hidden;
+}
+
+.task-page :deep(.el-card__header) {
+  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  border-bottom: 1px solid #dce8fb;
 }
 
 .task-page :deep(.el-card__body) {
@@ -1262,24 +1419,27 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+  padding: 14px;
 }
 
 .explorer-layout {
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 12px;
+  gap: 14px;
 }
 
 .left-tree-panel {
-  width: 240px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
-  padding: 10px;
+  width: 264px;
+  border: 1px solid #dce8fb;
+  border-radius: 12px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--el-fill-color-extra-light);
+  background: linear-gradient(180deg, #f7fbff 0%, #f2f8ff 100%);
+  box-shadow: 0 8px 20px rgba(22, 58, 123, 0.08);
 }
 
 .panel-title {
@@ -1288,26 +1448,36 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 8px;
   font-size: 13px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 8px;
+  color: var(--biz-text-muted);
+  margin-bottom: 10px;
+  font-weight: 700;
 }
 
 .project-search-input {
-  width: 130px;
+  width: 136px;
 }
 
 .left-tree-panel :deep(.el-tree) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  background: transparent;
 }
 
 .left-tree-panel :deep(.el-tree-node__content) {
-  height: auto;
-  min-height: 34px;
-  align-items: flex-start;
-  padding-top: 4px;
-  padding-bottom: 4px;
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+
+.left-tree-panel :deep(.el-tree-node__content:hover) {
+  background: #edf5ff;
+}
+
+.left-tree-panel :deep(.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content) {
+  background: #dceaff;
+  color: #1248a6;
+  font-weight: 700;
 }
 
 .project-tree-node {
@@ -1326,11 +1496,28 @@ onMounted(async () => {
   line-height: 1.2;
 }
 
+.project-manager-tag {
+  max-width: 100%;
+  border-radius: 999px;
+  border-color: #d2e2fc;
+  background: #f4f8ff;
+  color: #395171;
+  font-weight: 500;
+}
+
+.project-manager-tag :deep(.el-tag__content) {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-tree-meta {
   display: flex;
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
+  min-height: 18px;
 }
 
 .project-tree-badge {
@@ -1338,8 +1525,8 @@ onMounted(async () => {
   line-height: 1;
   padding: 2px 6px;
   border-radius: 10px;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-secondary);
+  background: #edf3ff;
+  color: #516884;
 }
 
 .project-tree-badge.planning {
@@ -1347,23 +1534,23 @@ onMounted(async () => {
 }
 
 .project-tree-badge.active {
-  color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+  color: #245cbc;
+  background: #e6efff;
 }
 
 .project-tree-badge.done {
-  color: var(--el-color-success);
-  background: var(--el-color-success-light-9);
+  color: #137657;
+  background: #e8f8f2;
 }
 
 .project-tree-badge.paused {
-  color: var(--el-color-warning);
-  background: var(--el-color-warning-light-9);
+  color: #7f5800;
+  background: #fff4da;
 }
 
 .project-tree-badge.danger {
-  color: var(--el-color-danger);
-  background: var(--el-color-danger-light-9);
+  color: #bf3a3a;
+  background: #fdeeee;
 }
 
 .right-content-panel {
@@ -1371,13 +1558,22 @@ onMounted(async () => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 260px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+}
+
+.card-header>span {
+  font-size: 20px;
+  color: var(--biz-text-strong);
+  font-weight: 800;
+  letter-spacing: 0.3px;
 }
 
 .header-actions {
@@ -1388,32 +1584,81 @@ onMounted(async () => {
 .search-bar {
   display: flex;
   gap: 10px;
-  margin-bottom: 20px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
   align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #dbe8ff;
+  background: #f8fbff;
 }
 
 .content-area {
   flex: 1;
   min-height: 0;
+  overflow: auto;
 }
 
 .pagination {
-  margin-top: 20px;
+  margin-top: 12px;
   display: flex;
   justify-content: flex-end;
   margin-top: auto;
   padding: 12px 0;
-  background: var(--el-bg-color);
+  border-top: 1px solid #e4ecfa;
+  background: transparent;
 }
 
 .overdue {
-  color: #f56c6c;
+  color: #c23a3a;
+  font-weight: 700;
 }
 
 .completed-late {
   color: #f56c6c;
+}
+
+.task-title-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  max-width: 100%;
+}
+
+.task-title-overdue {
+  color: #a62d2d;
+  font-weight: 700;
+}
+
+.task-overdue-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #d63f3f;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.task-page :deep(.el-table .task-row-overdue > td.el-table__cell) {
+  background: #fff2f2;
+}
+
+.task-page :deep(.el-table .task-row-overdue > td.el-table__cell:first-child) {
+  box-shadow: inset 4px 0 0 #d63f3f;
+}
+
+.task-page :deep(.el-table .task-row-overdue:hover > td.el-table__cell) {
+  background: #ffe8e8;
+}
+
+.task-page :deep(.el-table .task-row-completed-late > td.el-table__cell) {
+  background: #fff7ef;
 }
 
 .action-inline {
@@ -1432,6 +1677,230 @@ onMounted(async () => {
   margin-right: 0;
 }
 
+.task-page :deep(.priority-cell .cell),
+.task-page :deep(.status-cell .cell) {
+  display: flex;
+  align-items: center;
+}
+
+.biz-inline-select {
+  width: 104px;
+}
+
+.biz-inline-select :deep(.el-select__wrapper) {
+  min-height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
+  box-shadow: none;
+  padding-left: 10px;
+  padding-right: 22px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.biz-inline-select :deep(.el-select__wrapper:hover) {
+  border-color: var(--el-color-primary-light-5);
+}
+
+.biz-inline-select :deep(.el-select__wrapper.is-focused) {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-9);
+}
+
+.biz-inline-select :deep(.el-select__selected-item) {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+
+.biz-inline-select :deep(.el-select__caret) {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.biz-select-dot,
+.biz-option-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.biz-option-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.inline-cell-tag {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-weight: 700;
+  min-width: 104px;
+  justify-content: center;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.biz-inline-select.is-low :deep(.el-select__wrapper),
+.inline-cell-tag.is-low {
+  border-color: var(--el-color-info-light-4);
+  background: var(--el-color-info-light-8);
+}
+
+.biz-inline-select.is-medium :deep(.el-select__wrapper),
+.inline-cell-tag.is-medium {
+  border-color: var(--el-color-warning-light-4);
+  background: var(--el-color-warning-light-8);
+}
+
+.biz-inline-select.is-high :deep(.el-select__wrapper),
+.inline-cell-tag.is-high {
+  border-color: var(--el-color-danger-light-4);
+  background: var(--el-color-danger-light-8);
+}
+
+.biz-inline-select.is-urgent :deep(.el-select__wrapper),
+.inline-cell-tag.is-urgent {
+  border-color: var(--el-color-danger-light-3);
+  background: var(--el-color-danger-light-7);
+}
+
+.biz-inline-select.is-todo :deep(.el-select__wrapper),
+.inline-cell-tag.is-todo {
+  border-color: var(--el-color-info-light-4);
+  background: var(--el-color-info-light-8);
+}
+
+.biz-inline-select.is-progress :deep(.el-select__wrapper),
+.inline-cell-tag.is-progress {
+  border-color: var(--el-color-primary-light-4);
+  background: var(--el-color-primary-light-8);
+}
+
+.biz-inline-select.is-done :deep(.el-select__wrapper),
+.inline-cell-tag.is-done {
+  border-color: var(--el-color-success-light-4);
+  background: var(--el-color-success-light-8);
+}
+
+.biz-inline-select.is-cancelled :deep(.el-select__wrapper),
+.inline-cell-tag.is-cancelled {
+  border-color: var(--el-color-danger-light-4);
+  background: var(--el-color-danger-light-8);
+}
+
+.biz-select-dot.is-low,
+.inline-cell-tag.is-low,
+.biz-option-row.is-low {
+  color: var(--el-color-info-dark-2);
+}
+
+.biz-select-dot.is-medium,
+.inline-cell-tag.is-medium,
+.biz-option-row.is-medium {
+  color: var(--el-color-warning-dark-2);
+}
+
+.biz-select-dot.is-high,
+.inline-cell-tag.is-high,
+.biz-option-row.is-high {
+  color: var(--el-color-danger-dark-2);
+}
+
+.biz-select-dot.is-urgent,
+.inline-cell-tag.is-urgent,
+.biz-option-row.is-urgent {
+  color: var(--el-color-danger-dark-2);
+}
+
+.biz-select-dot.is-todo,
+.inline-cell-tag.is-todo,
+.biz-option-row.is-todo {
+  color: var(--el-color-info-dark-2);
+}
+
+.biz-select-dot.is-progress,
+.inline-cell-tag.is-progress,
+.biz-option-row.is-progress {
+  color: var(--el-color-primary-dark-2);
+}
+
+.biz-select-dot.is-done,
+.inline-cell-tag.is-done,
+.biz-option-row.is-done {
+  color: var(--el-color-success-dark-2);
+}
+
+.biz-select-dot.is-cancelled,
+.inline-cell-tag.is-cancelled,
+.biz-option-row.is-cancelled {
+  color: var(--el-color-danger-dark-2);
+}
+
+.task-page :deep(.task-inline-select-popper.el-select__popper) {
+  z-index: 3000;
+}
+
+.task-page :deep(.task-inline-select-popper .el-select-dropdown) {
+  min-width: 136px !important;
+  border-radius: 12px;
+  border: 1px solid #dbe6f8;
+  background: #fff;
+  box-shadow: 0 16px 24px rgba(14, 40, 94, 0.16);
+}
+
+.task-page :deep(.task-inline-select-popper .el-select-dropdown__item) {
+  height: 34px;
+  line-height: 34px;
+  border-radius: 8px;
+  margin: 2px 6px;
+  padding: 0 10px;
+}
+
+.task-page :deep(.task-inline-select-popper .el-select-dropdown__item:hover),
+.task-page :deep(.task-inline-select-popper .el-select-dropdown__item.is-hovering) {
+  background: #edf4ff;
+}
+
+.task-page :deep(.task-inline-select-popper .el-select-dropdown__item.is-selected) {
+  font-weight: 700;
+  background: #e4eeff;
+}
+
+.task-page :deep(.el-table) {
+  border-radius: 12px;
+  border: 1px solid #dce8fb;
+  overflow: hidden;
+}
+
+.task-page :deep(.el-table th.el-table__cell) {
+  background: #f3f8ff;
+  color: #2e4566;
+  font-weight: 700;
+}
+
+.task-page :deep(.el-table tr:hover > td.el-table__cell) {
+  background: #f5f9ff;
+}
+
+.task-page :deep(.el-button) {
+  border-radius: 999px;
+}
+
+.task-page :deep(.el-input__wrapper),
+.task-page :deep(.el-select__wrapper),
+.task-page :deep(.el-textarea__inner) {
+  border-radius: 999px;
+}
+
+.task-page :deep(.el-textarea__inner) {
+  border-radius: 12px;
+}
+
 .template-option-row {
   display: flex;
   align-items: center;
@@ -1444,5 +1913,34 @@ onMounted(async () => {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-right: 12px;
+}
+
+@media (max-width: 1200px) {
+  .left-tree-panel {
+    width: 236px;
+  }
+}
+
+@media (max-width: 900px) {
+  .task-page {
+    padding: 8px;
+  }
+
+  .task-page :deep(.el-card__body) {
+    padding: 10px;
+  }
+
+  .card-header>span {
+    font-size: 17px;
+  }
+
+  .explorer-layout {
+    flex-direction: column;
+  }
+
+  .left-tree-panel {
+    width: 100%;
+    max-height: 240px;
+  }
 }
 </style>

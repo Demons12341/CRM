@@ -109,18 +109,92 @@ onMounted(async () => {
 
 <style scoped>
 .menus-page {
-  padding: 10px;
+  --biz-card-bg: rgba(255, 255, 255, 0.94);
+  --biz-card-border: #d7e4f8;
+  --biz-text-strong: #0f3b8c;
+  padding: 12px;
+  min-height: 100%;
+  box-sizing: border-box;
+  background: #f5f8fc;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+}
+
+.card-header > span {
+  font-size: 20px;
+  color: var(--biz-text-strong);
+  font-weight: 800;
+}
+
+.menus-page :deep(.el-card) {
+  border-radius: 16px;
+  border: 1px solid var(--biz-card-border);
+  background: var(--biz-card-bg);
+  box-shadow: 0 18px 40px rgba(36, 66, 135, 0.12);
+  overflow: hidden;
+}
+
+.menus-page :deep(.el-card__header) {
+  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  border-bottom: 1px solid #dce8fb;
+}
+
+.menus-page :deep(.el-card__body) {
+  padding: 14px;
+}
+
+.menus-page :deep(.el-form--inline) {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #dbe8ff;
+  background: #f8fbff;
+  margin-bottom: 12px;
+}
+
+.menus-page :deep(.el-tree) {
+  border: 1px solid #dce8fb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.menus-page :deep(.el-tree-node__content) {
+  border-radius: 8px;
+}
+
+.menus-page :deep(.el-tree-node__content:hover) {
+  background: #edf5ff;
+}
+
+.menus-page :deep(.el-button) {
+  border-radius: 999px;
+}
+
+.menus-page :deep(.el-input__wrapper),
+.menus-page :deep(.el-select__wrapper) {
+  border-radius: 999px;
 }
 
 .footer-actions {
-  margin-top: 16px;
+  margin-top: 12px;
   display: flex;
   justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid #e4ecfa;
+}
+
+@media (max-width: 900px) {
+  .menus-page {
+    padding: 8px;
+  }
+
+  .card-header > span {
+    font-size: 17px;
+  }
 }
 </style>

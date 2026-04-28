@@ -8,9 +8,8 @@
         </div>
       </template>
 
-      <el-descriptions v-if="task" :column="2" border>
-        <el-descriptions-item label="任务ID">{{ task.id }}</el-descriptions-item>
-        <el-descriptions-item label="任务名称">{{ task.title }}</el-descriptions-item>
+    <el-descriptions v-if="task" :column="2" border>
+      <el-descriptions-item label="任务名称" :span="2">{{ task.title }}</el-descriptions-item>
         <el-descriptions-item label="所属项目">{{ task.projectName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="责任人">{{ task.assigneeDisplay || task.assigneeName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="优先级">
@@ -43,7 +42,17 @@
                     <span>交付物：</span>
                     <template v-if="line.deliverableNames.length">
                       <span v-for="(name, index) in line.deliverableNames" :key="`${item.id}-${name}-${index}`">
-                        <el-link type="primary" @click="goToDeliverableFile(name)">{{ name }}</el-link>
+                        <template v-if="isImageName(name)">
+                          <a class="deliverable-thumb-link" href="#" @click.prevent="handleDeliverableClick(name)">
+                            <img
+                              v-if="deliverableThumbnailMap[normalizeDeliverableKey(name)]"
+                              :src="deliverableThumbnailMap[normalizeDeliverableKey(name)]"
+                              :alt="name"
+                              class="deliverable-thumb-image" />
+                            <span v-else class="deliverable-thumb-fallback">图片</span>
+                          </a>
+                        </template>
+                        <el-link v-else type="primary" @click="handleDeliverableClick(name)">{{ name }}</el-link>
                         <span v-if="Number(index) < line.deliverableNames.length - 1">；</span>
                       </span>
                     </template>
@@ -122,13 +131,15 @@
       </el-table>
       <el-empty v-else description="暂无操作日志" />
     </el-dialog>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import axios from 'axios'
 import { request } from '@/api/request'
 import dayjs from 'dayjs'
 
@@ -145,6 +156,7 @@ const uploadDeliverableProgress = ref(0)
 const uploadingDeliverableName = ref('')
 const workDialogVisible = ref(false)
 const logDialogVisible = ref(false)
+const deliverableThumbnailMap = ref<Record<string, string>>({})
 
 const task = ref<any>(null)
 const logs = ref<any[]>([])
@@ -253,11 +265,17 @@ const deliverablesHintText = computed(() => {
   return `提交后可在 文件管理 > ${projectName} > ${folderName} 查看上传内容`
 })
 
+const setDynamicTitle = inject<(path: string, title: string) => void>('setDynamicTitle')
+
 const fetchTaskDetail = async () => {
   loading.value = true
   try {
     const res = await request.get(`/tasks/${taskId.value}`)
     task.value = res.data
+    // 设置标签栏动态标题
+    if (task.value?.title && setDynamicTitle) {
+      setDynamicTitle(route.fullPath, task.value.title)
+    }
   } catch (error) {
     console.error('获取任务详情失败：', error)
   } finally {
@@ -269,6 +287,7 @@ const fetchTaskLogs = async () => {
   try {
     const res = await request.get(`/tasks/${taskId.value}/logs`)
     logs.value = res.data || []
+    await refreshDeliverableThumbnails(logs.value)
   } catch (error) {
     console.error('获取任务日志失败：', error)
   }
@@ -292,6 +311,47 @@ const beforeDeliverableUpload = (file: File) => {
 const getTaskFolderName = () => {
   const name = `${task.value?.title || ''}`.trim()
   return name || `任务-${taskId.value}`
+}
+
+const isImageName = (fileName: string) => {
+  const name = `${fileName || ''}`.toLowerCase()
+  return ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'].some((ext) => name.endsWith(ext))
+}
+
+const normalizeDeliverableKey = (fileName: string) => `${fileName || ''}`.trim().toLowerCase()
+
+const cleanupDeliverableThumbnailUrls = (keepKeys: string[] = []) => {
+  const keepSet = new Set(keepKeys.map((key) => normalizeDeliverableKey(key)))
+  Object.entries(deliverableThumbnailMap.value).forEach(([key, url]) => {
+    if (!keepSet.has(key)) {
+      URL.revokeObjectURL(url)
+      delete deliverableThumbnailMap.value[key]
+    }
+  })
+}
+
+const extractDeliverableNamesFromSummary = (summary: string) => {
+  const names: string[] = []
+  const lines = `${summary || ''}`
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  lines.forEach((line) => {
+    if (!line.startsWith('交付物：')) {
+      return
+    }
+
+    const currentNames = line
+      .replace('交付物：', '')
+      .split(/[；;，,、]/)
+      .map((name) => name.trim())
+      .filter(Boolean)
+
+    names.push(...currentNames)
+  })
+
+  return names
 }
 
 const ensureTaskFolderId = async () => {
@@ -463,6 +523,114 @@ const goToDeliverableFile = (fileName: string) => {
   })
 }
 
+const findDeliverableFile = async (fileName: string) => {
+  const projectId = Number(task.value?.projectId || 0)
+  if (!projectId) {
+    return null
+  }
+
+  const folderName = getTaskFolderName()
+  const folderRes = await request.get(`/projects/${projectId}/files`, {
+    params: {
+      parentId: null,
+      keyword: folderName
+    },
+    headers: {
+      'X-Silent-Error': '1'
+    }
+  })
+
+  const folderItems = Array.isArray(folderRes?.data?.items) ? folderRes.data.items : []
+  const taskFolder = folderItems.find((item: any) => item?.isFolder && `${item?.fileName || ''}` === folderName)
+  if (!taskFolder?.id) {
+    return null
+  }
+
+  const fileRes = await request.get(`/projects/${projectId}/files`, {
+    params: {
+      parentId: taskFolder.id,
+      keyword: fileName,
+      recursive: false
+    },
+    headers: {
+      'X-Silent-Error': '1'
+    }
+  })
+
+  const fileItems = Array.isArray(fileRes?.data?.items) ? fileRes.data.items : []
+  const normalizedName = `${fileName || ''}`.trim().toLowerCase()
+  const exactFiles = fileItems.filter((item: any) => {
+    if (item?.isFolder) {
+      return false
+    }
+
+    return `${item?.fileName || ''}`.trim().toLowerCase() === normalizedName
+  })
+
+  if (!exactFiles.length) {
+    return null
+  }
+
+  return [...exactFiles].sort((a: any, b: any) => dayjs(b?.uploadedAt).valueOf() - dayjs(a?.uploadedAt).valueOf())[0]
+}
+
+const fetchDeliverableThumbnail = async (fileName: string) => {
+  const key = normalizeDeliverableKey(fileName)
+  if (!key || !isImageName(fileName) || deliverableThumbnailMap.value[key]) {
+    return
+  }
+
+  try {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      return
+    }
+
+    const deliverableFile = await findDeliverableFile(fileName)
+    if (!deliverableFile?.id) {
+      return
+    }
+
+    const response = await axios.get(`/api/files/${deliverableFile.id}/download`, {
+      responseType: 'blob',
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+
+    deliverableThumbnailMap.value[key] = URL.createObjectURL(response.data)
+  } catch (error) {
+    console.error('交付物缩略图加载失败：', error)
+  }
+}
+
+const refreshDeliverableThumbnails = async (list: any[]) => {
+  const names = list
+    .filter((item: any) => item?.action === '工作提交')
+    .flatMap((item: any) => extractDeliverableNamesFromSummary(`${item?.newValue || ''}`))
+    .filter((name: string) => isImageName(name))
+
+  cleanupDeliverableThumbnailUrls(names)
+
+  const uniqueNames = [...new Set(names.map((name: string) => normalizeDeliverableKey(name)))]
+  for (const key of uniqueNames) {
+    const originalName = names.find((name: string) => normalizeDeliverableKey(name) === key)
+    if (originalName) {
+      await fetchDeliverableThumbnail(originalName)
+    }
+  }
+}
+
+const handleDeliverableClick = (fileName: string) => {
+  const normalizedName = `${fileName || ''}`.trim()
+  if (!normalizedName) {
+    ElMessage.warning('交付物名称为空，无法定位文件')
+    return
+  }
+
+  goToDeliverableFile(normalizedName)
+}
+
 const completeTask = async () => {
   if (!canEditTask.value) {
     ElMessage.warning('仅项目负责人或任务责任人可完成任务')
@@ -566,6 +734,10 @@ onMounted(async () => {
     }
   }
 })
+
+onBeforeUnmount(() => {
+  cleanupDeliverableThumbnailUrls()
+})
 </script>
 
 <style scoped>
@@ -648,5 +820,31 @@ onMounted(async () => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.deliverable-thumb-link {
+  display: inline-flex;
+  vertical-align: middle;
+  text-decoration: none;
+}
+
+.deliverable-thumb-image {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  border: 1px solid var(--el-border-color-light);
+  object-fit: cover;
+}
+
+.deliverable-thumb-fallback {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  border: 1px dashed var(--el-border-color);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 </style>

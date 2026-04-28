@@ -223,8 +223,8 @@ namespace ProjectManagementSystem.Services.Implementations
                 AssigneeIds = await ResolveTaskAssigneeIdsAsync(task),
                 MilestoneId = task.MilestoneId,
                 MilestoneName = task.Milestone?.Name,
-                Priority = task.Project.Priority,
-                PriorityName = GetPriorityName(task.Project.Priority),
+                Priority = task.Priority,
+                PriorityName = GetPriorityName(task.Priority),
                 Status = task.Status,
                 StatusName = GetStatusName(task.Status),
                 StartDate = task.StartDate,
@@ -358,6 +358,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 || request.AssigneeIds != null
                 || request.AssigneeId.HasValue
                 || request.MilestoneId.HasValue
+                || request.Priority.HasValue
                 || request.Status.HasValue
                 || request.StartDate.HasValue
                 || request.DueDate.HasValue
@@ -460,6 +461,15 @@ namespace ProjectManagementSystem.Services.Implementations
                     TrackChange("里程碑", task.MilestoneId?.ToString(), request.MilestoneId.Value.ToString());
                 }
                 task.MilestoneId = request.MilestoneId.Value;
+            }
+
+            if (request.Priority.HasValue)
+            {
+                if (task.Priority != request.Priority.Value)
+                {
+                    TrackChange("优先级", GetPriorityName(task.Priority), GetPriorityName(request.Priority.Value));
+                    task.Priority = request.Priority.Value;
+                }
             }
 
             if (request.Status.HasValue)

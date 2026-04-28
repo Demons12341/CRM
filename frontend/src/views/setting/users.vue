@@ -445,15 +445,31 @@ onMounted(() => {
 
 <style scoped>
 .users-page {
-  padding: 10px;
-  min-height: calc(100vh - 120px);
+  --biz-card-bg: rgba(255, 255, 255, 0.94);
+  --biz-card-border: #d7e4f8;
+  --biz-text-strong: #0f3b8c;
+  padding: 12px;
+  height: 100%;
+  min-height: 0;
   display: flex;
+  background: #f5f8fc;
+  overflow: hidden;
 }
 
 .users-page :deep(.el-card) {
   width: 100%;
   display: flex;
   flex-direction: column;
+  border-radius: 16px;
+  border: 1px solid var(--biz-card-border);
+  background: var(--biz-card-bg);
+  box-shadow: 0 18px 40px rgba(36, 66, 135, 0.12);
+  overflow: hidden;
+}
+
+.users-page :deep(.el-card__header) {
+  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  border-bottom: 1px solid #dce8fb;
 }
 
 .users-page :deep(.el-card__body) {
@@ -461,31 +477,92 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  padding: 14px;
+  overflow: hidden;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+}
+
+.card-header > span {
+  font-size: 20px;
+  color: var(--biz-text-strong);
+  font-weight: 800;
 }
 
 .header-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .search-bar {
   display: flex;
   gap: 10px;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #dbe8ff;
+  background: #f8fbff;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.users-page :deep(.el-table) {
+  border-radius: 12px;
+  border: 1px solid #dce8fb;
+  overflow: hidden;
+}
+
+.users-page :deep(.el-table th.el-table__cell) {
+  background: #f3f8ff;
+  color: #2e4566;
+  font-weight: 700;
+}
+
+.users-page :deep(.el-table tr:hover > td.el-table__cell) {
+  background: #f5f9ff;
+}
+
+.users-page :deep(.el-button) {
+  border-radius: 999px;
+}
+
+.users-page :deep(.el-input__wrapper),
+.users-page :deep(.el-select__wrapper),
+.users-page :deep(.el-textarea__inner) {
+  border-radius: 999px;
+}
+
+.users-page :deep(.el-textarea__inner) {
+  border-radius: 12px;
 }
 
 .pagination {
-  margin-top: 20px;
+  margin-top: 12px;
   display: flex;
   justify-content: flex-end;
   margin-top: auto;
   padding: 12px 0;
-  background: var(--el-bg-color);
+  border-top: 1px solid #e4ecfa;
+  background: transparent;
+}
+
+@media (max-width: 900px) {
+  .users-page {
+    padding: 8px;
+  }
+
+  .users-page :deep(.el-card__body) {
+    padding: 10px;
+  }
+
+  .card-header > span {
+    font-size: 17px;
+  }
 }
 </style>

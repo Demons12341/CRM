@@ -37,6 +37,9 @@ namespace ProjectManagementSystem.Models.DTOs
 
         public int? MilestoneId { get; set; }
 
+        [Range(1, 4)]
+        public int? Priority { get; set; }
+
         public int? Status { get; set; }
 
         public DateTime? StartDate { get; set; }

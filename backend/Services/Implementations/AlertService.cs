@@ -22,101 +22,142 @@ namespace ProjectManagementSystem.Services.Implementations
         {
             await EnsureOverdueAlertsAsync();
 
-            var hiddenProjectIds = await _context.Projects
+            // 获取隐藏的共享文件夹项目ID（一次性查询）
+            var hiddenProjectId = await _context.Projects
                 .AsNoTracking()
                 .Where(p => p.Name == SharedFolderProjectName)
-                .Select(p => p.Id)
-                .ToListAsync();
+                .Select(p => (int?)p.Id)
+                .FirstOrDefaultAsync();
 
+            // 构建基础查询 - 使用Select投影，避免Include
             var query = _context.Alerts
-                .Include(a => a.Project)
-                .ThenInclude(p => p!.Manager)
-                .Include(a => a.Task)
-                .ThenInclude(t => t!.Assignee)
+                .AsNoTracking()
                 .Where(a => a.UserId == userId)
-                .AsQueryable();
+                .Select(a => new AlertQueryDto
+                {
+                    Id = a.Id,
+                    ProjectId = a.ProjectId,
+                    ProjectManagerId = a.Project != null ? a.Project.ManagerId : null,
+                    ProjectName = a.Project != null ? a.Project.Name : null,
+                    ProjectManagerRealName = a.Project != null && a.Project.Manager != null ? a.Project.Manager.RealName : null,
+                    ProjectManagerUsername = a.Project != null && a.Project.Manager != null ? a.Project.Manager.Username : null,
+                    ProjectStatus = a.Project != null ? (int?)a.Project.Status : null,
+                    TaskId = a.TaskId,
+                    TaskTitle = a.Task != null ? a.Task.Title : null,
+                    TaskStatus = a.Task != null ? (int?)a.Task.Status : null,
+                    TaskAssigneeId = a.Task != null ? a.Task.AssigneeId : null,
+                    TaskAssigneeRealName = a.Task != null && a.Task.Assignee != null ? a.Task.Assignee.RealName : null,
+                    TaskAssigneeUsername = a.Task != null && a.Task.Assignee != null ? a.Task.Assignee.Username : null,
+                    TaskDescription = a.Task != null ? a.Task.Description : null,
+                    TaskOverdueReason = a.Task != null ? a.Task.OverdueReason : null,
+                    UserId = a.UserId,
+                    AlertType = a.AlertType,
+                    Message = a.Message,
+                    IsRead = a.IsRead,
+                    CreatedAt = a.CreatedAt
+                });
 
-            if (hiddenProjectIds.Any())
+            // 应用隐藏项目过滤
+            if (hiddenProjectId.HasValue)
             {
-                query = query.Where(a => !a.ProjectId.HasValue || !hiddenProjectIds.Contains(a.ProjectId.Value));
+                query = query.Where(a => !a.ProjectId.HasValue || a.ProjectId.Value != hiddenProjectId.Value);
             }
 
+            // 应用告警类型过滤
             if (alertType.HasValue)
             {
                 query = query.Where(a => a.AlertType == alertType.Value);
             }
 
+            // 应用已读状态过滤
             if (isRead.HasValue)
             {
                 query = query.Where(a => a.IsRead == isRead.Value);
             }
 
+            // 应用告警状态过滤（简化后的条件）
             if (alertStatus.HasValue)
             {
+                // alertStatus: 1=已处理(完成), 0=未处理
+                // 任务超期(AlertType=1)且任务状态=2(已完成) 或 项目超期(AlertType=2)且项目状态=2(已完成)
                 if (alertStatus.Value == 1)
                 {
                     query = query.Where(a =>
-                        (a.AlertType == 1 && a.Task != null && a.Task.Status == 2) ||
-                        (a.AlertType == 2 && a.Project != null && a.Project.Status == 2));
+                        (a.AlertType == 1 && a.TaskStatus == 2) ||
+                        (a.AlertType == 2 && a.ProjectStatus == 2));
                 }
                 else
                 {
                     query = query.Where(a =>
-                        !((a.AlertType == 1 && a.Task != null && a.Task.Status == 2) ||
-                          (a.AlertType == 2 && a.Project != null && a.Project.Status == 2)));
+                        (a.AlertType == 1 && a.TaskStatus != 2) ||
+                        (a.AlertType == 2 && a.ProjectStatus != 2) ||
+                        a.AlertType == 3);
                 }
             }
 
+            // 计算总数
             var totalCount = await query.CountAsync();
             var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
-            var alertEntities = await query
+            if (totalCount == 0)
+            {
+                return new PaginatedResult<AlertDto>
+                {
+                    Items = new List<AlertDto>(),
+                    TotalCount = 0,
+                    Page = page,
+                    PageSize = pageSize,
+                    TotalPages = 0
+                };
+            }
+
+            // 分页查询 - 只取需要的数据
+            var alertDtos = await query
                 .OrderBy(a => a.AlertType == 2 ? 0 : (a.AlertType == 1 ? 1 : 2))
                 .ThenByDescending(a => a.CreatedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
 
-            var taskAssigneeUsernames = alertEntities
-                .Where(a => a.Task != null)
-                .SelectMany(a => ExtractDefaultAssigneeNames(a.Task!.Description))
+            // 提取任务描述中的默认负责人用户名（用于后续查询）
+            var assigneeUsernames = alertDtos
+                .Where(a => !string.IsNullOrEmpty(a.TaskDescription))
+                .SelectMany(a => ExtractDefaultAssigneeNames(a.TaskDescription))
                 .Distinct()
                 .ToList();
 
-            var userDisplayNameMap = taskAssigneeUsernames.Any()
+            // 一次性查询所有需要的用户信息（避免N+1问题）
+            var userDisplayNameMap = assigneeUsernames.Count > 0
                 ? await _context.Users
                     .AsNoTracking()
-                    .Where(u => taskAssigneeUsernames.Contains(u.Username))
-                    .Select(u => new { u.Username, DisplayName = !string.IsNullOrWhiteSpace(u.RealName) ? u.RealName! : u.Username })
+                    .Where(u => assigneeUsernames.Contains(u.Username))
+                    .Select(u => new { u.Username, DisplayName = !string.IsNullOrWhiteSpace(u.RealName) ? u.RealName : u.Username })
                     .ToDictionaryAsync(u => u.Username, u => u.DisplayName)
                 : new Dictionary<string, string>();
 
-            var alerts = alertEntities
-                .Select(a => new AlertDto
-                {
-                    Id = a.Id,
-                    ProjectId = a.ProjectId,
-                    ProjectManagerId = a.Project != null ? a.Project.ManagerId : null,
-                    ProjectName = a.Project != null ? a.Project.Name : null,
-                    ProjectManagerName = a.Project != null && a.Project.Manager != null
-                        ? GetDisplayName(a.Project.Manager)
-                        : null,
-                    TaskId = a.TaskId,
-                    TaskName = a.Task != null ? a.Task.Title : null,
-                    TaskAssigneeName = BuildTaskAssigneeDisplay(a.Task, userDisplayNameMap),
-                    UserId = a.UserId,
-                    AlertType = a.AlertType,
-                    AlertTypeName = GetAlertTypeName(a.AlertType),
-                    AlertStatus = GetAlertStatus(a),
-                    AlertStatusName = GetAlertStatusName(a),
-                    OverdueReason = a.AlertType == 1
-                        ? a.Task?.OverdueReason
-                        : (a.AlertType == 2 ? ExtractProjectOverdueReasonFromMessage(a.Message) : null),
-                    Message = a.Message,
-                    IsRead = a.IsRead,
-                    CreatedAt = a.CreatedAt
-                })
-                .ToList();
+            // 组装最终DTO
+            var alerts = alertDtos.Select(a => new AlertDto
+            {
+                Id = a.Id,
+                ProjectId = a.ProjectId,
+                ProjectManagerId = a.ProjectManagerId,
+                ProjectName = a.ProjectName,
+                ProjectManagerName = GetDisplayNameFromFields(a.ProjectManagerRealName, a.ProjectManagerUsername),
+                TaskId = a.TaskId,
+                TaskName = a.TaskTitle,
+                TaskAssigneeName = BuildTaskAssigneeDisplay(a.TaskDescription, a.TaskAssigneeRealName, a.TaskAssigneeUsername, userDisplayNameMap),
+                UserId = a.UserId,
+                AlertType = a.AlertType,
+                AlertTypeName = GetAlertTypeName(a.AlertType),
+                AlertStatus = GetAlertStatusFromDto(a),
+                AlertStatusName = GetAlertStatusNameFromDto(a),
+                OverdueReason = a.AlertType == 1
+                    ? a.TaskOverdueReason
+                    : (a.AlertType == 2 ? ExtractProjectOverdueReasonFromMessage(a.Message) : null),
+                Message = a.Message,
+                IsRead = a.IsRead,
+                CreatedAt = a.CreatedAt
+            }).ToList();
 
             return new PaginatedResult<AlertDto>
             {
@@ -130,30 +171,25 @@ namespace ProjectManagementSystem.Services.Implementations
 
         public async Task<int> GetUnreadCountAsync(int userId)
         {
-            await EnsureOverdueAlertsAsync();
-
-            var hiddenProjectIds = await _context.Projects
+            // 使用EXISTS（Any）替代LEFT JOIN，提高索引命中率
+            // 生成SQL: SELECT COUNT(*) FROM Alerts WHERE UserId=@uid AND IsRead=0 AND ...
+            // EXISTS条件会生成子查询，避免JOIN带来的性能损耗
+            return await _context.Alerts
                 .AsNoTracking()
-                .Where(p => p.Name == SharedFolderProjectName)
-                .Select(p => p.Id)
-                .ToListAsync();
-
-            var query = _context.Alerts
-                .Include(a => a.Project)
-                .Include(a => a.Task)
                 .Where(a => a.UserId == userId && !a.IsRead)
-                .AsQueryable();
-
-            if (hiddenProjectIds.Any())
-            {
-                query = query.Where(a => !a.ProjectId.HasValue || !hiddenProjectIds.Contains(a.ProjectId.Value));
-            }
-
-            query = query.Where(a =>
-                !((a.AlertType == 1 && a.Task != null && a.Task.Status == 2) ||
-                  (a.AlertType == 2 && a.Project != null && a.Project.Status == 2)));
-
-            return await query.CountAsync();
+                .Where(a =>
+                    // 非共享文件夹项目（通过Project.Name判断）
+                    a.ProjectId == null ||
+                    _context.Projects.Any(p => p.Id == a.ProjectId && p.Name != SharedFolderProjectName))
+                .Where(a =>
+                    // 任务超期告警(AlertType=1)时，任务状态未完成(Status!=2)
+                    a.AlertType != 1 ||
+                    _context.Tasks.Any(t => t.Id == a.TaskId && t.Status != 2))
+                .Where(a =>
+                    // 项目超期告警(AlertType=2)时，项目状态未完成(Status!=2)
+                    a.AlertType != 2 ||
+                    _context.Projects.Any(p => p.Id == a.ProjectId && p.Status != 2))
+                .CountAsync();
         }
 
         public async Task<bool> MarkAsReadAsync(int id, int userId)
@@ -174,16 +210,10 @@ namespace ProjectManagementSystem.Services.Implementations
 
         public async Task<bool> MarkAllAsReadAsync(int userId)
         {
-            var alerts = await _context.Alerts
+            // 使用ExecuteUpdate进行批量更新，更高效
+            await _context.Alerts
                 .Where(a => a.UserId == userId && !a.IsRead)
-                .ToListAsync();
-
-            foreach (var alert in alerts)
-            {
-                alert.IsRead = true;
-            }
-
-            await _context.SaveChangesAsync();
+                .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.IsRead, true));
 
             return true;
         }
@@ -333,12 +363,12 @@ namespace ProjectManagementSystem.Services.Implementations
             foreach (var task in tasks)
             {
                 var isOverdueActive = task.Status != 2
-                    && task.Status != 3
-                    && task.DueDate!.Value.Date < today;
+                && task.Status != 3
+                && task.DueDate!.Value.Date < today;
 
                 var isCompletedOverdue = task.Status == 2
-                    && task.CompletedAt.HasValue
-                    && task.CompletedAt.Value.Date > task.DueDate!.Value.Date;
+                && task.CompletedAt.HasValue
+                && task.CompletedAt.Value.Date > task.DueDate!.Value.Date;
 
                 if (!isOverdueActive && !isCompletedOverdue)
                 {
@@ -346,19 +376,19 @@ namespace ProjectManagementSystem.Services.Implementations
                 }
 
                 var overdueDays = isCompletedOverdue
-                    ? Math.Max(1, (task.CompletedAt!.Value.Date - task.DueDate!.Value.Date).Days)
-                    : Math.Max(1, (today - task.DueDate!.Value.Date).Days);
+                ? Math.Max(1, (task.CompletedAt!.Value.Date - task.DueDate!.Value.Date).Days)
+                : Math.Max(1, (today - task.DueDate!.Value.Date).Days);
                 var projectName = task.Project?.Name ?? "-";
                 var taskAssigneeName = task.Assignee != null ? GetDisplayName(task.Assignee) : "未指定";
                 var projectManagerName = task.Project?.Manager != null ? GetDisplayName(task.Project.Manager) : "未指定";
 
                 var reasonSuffix = string.IsNullOrWhiteSpace(task.OverdueReason)
-                    ? string.Empty
-                    : $"；超期原因：{task.OverdueReason}";
+                ? string.Empty
+                : $"；超期原因：{task.OverdueReason}";
 
                 var message = isCompletedOverdue
-                    ? $"项目「{projectName}」的任务「{task.Title}」曾超期 {overdueDays} 天，当前已完成（预计截止：{task.DueDate:yyyy-MM-dd}，完成时间：{task.CompletedAt:yyyy-MM-dd}）{reasonSuffix}，任务负责人：{taskAssigneeName}，项目负责人：{projectManagerName}"
-                    : $"项目「{projectName}」的任务「{task.Title}」已超期 {overdueDays} 天（预计截止：{task.DueDate:yyyy-MM-dd}）{reasonSuffix}，任务负责人：{taskAssigneeName}，项目负责人：{projectManagerName}";
+                ? $"项目「{projectName}」的任务「{task.Title}」曾超期 {overdueDays} 天，当前已完成（预计截止：{task.DueDate:yyyy-MM-dd}，完成时间：{task.CompletedAt:yyyy-MM-dd}）{reasonSuffix}，任务负责人：{taskAssigneeName}，项目负责人：{projectManagerName}"
+                : $"项目「{projectName}」的任务「{task.Title}」已超期 {overdueDays} 天（预计截止：{task.DueDate:yyyy-MM-dd}）{reasonSuffix}，任务负责人：{taskAssigneeName}，项目负责人：{projectManagerName}";
 
                 foreach (var recipientId in activeUserIds)
                 {
@@ -440,11 +470,11 @@ namespace ProjectManagementSystem.Services.Implementations
             foreach (var project in projects)
             {
                 var isOverdueActive = project.Status != 2
-                    && project.Status != 3
-                    && project.EndDate!.Value.Date < today;
+                && project.Status != 3
+                && project.EndDate!.Value.Date < today;
 
                 var isCompletedOverdue = project.Status == 2
-                    && project.EndDate!.Value.Date < today;
+                && project.EndDate!.Value.Date < today;
 
                 if (!isOverdueActive && !isCompletedOverdue)
                 {
@@ -455,17 +485,17 @@ namespace ProjectManagementSystem.Services.Implementations
                 var projectManagerName = project.Manager != null ? GetDisplayName(project.Manager) : "未指定";
 
                 var projectOverdueReason = existingAlerts
-                    .Where(a => a.ProjectId == project.Id)
-                    .Select(a => ExtractProjectOverdueReasonFromMessage(a.Message))
-                    .FirstOrDefault(reason => !string.IsNullOrWhiteSpace(reason));
+                .Where(a => a.ProjectId == project.Id)
+                .Select(a => ExtractProjectOverdueReasonFromMessage(a.Message))
+                .FirstOrDefault(reason => !string.IsNullOrWhiteSpace(reason));
 
                 var reasonSuffix = string.IsNullOrWhiteSpace(projectOverdueReason)
-                    ? string.Empty
-                    : $"；超期原因：{projectOverdueReason}";
+                ? string.Empty
+                : $"；超期原因：{projectOverdueReason}";
 
                 var message = isCompletedOverdue
-                    ? $"项目「{project.Name}」曾超期 {overdueDays} 天，当前已完成（项目截止：{project.EndDate:yyyy-MM-dd}）{reasonSuffix}，项目负责人：{projectManagerName}"
-                    : $"项目「{project.Name}」已超期 {overdueDays} 天（项目截止：{project.EndDate:yyyy-MM-dd}）{reasonSuffix}，项目负责人：{projectManagerName}";
+                ? $"项目「{project.Name}」曾超期 {overdueDays} 天，当前已完成（项目截止：{project.EndDate:yyyy-MM-dd}）{reasonSuffix}，项目负责人：{projectManagerName}"
+                : $"项目「{project.Name}」已超期 {overdueDays} 天（项目截止：{project.EndDate:yyyy-MM-dd}）{reasonSuffix}，项目负责人：{projectManagerName}";
 
                 foreach (var recipientId in activeUserIds)
                 {
@@ -523,14 +553,14 @@ namespace ProjectManagementSystem.Services.Implementations
             };
         }
 
-        private static int GetAlertStatus(Alert alert)
+        private static int GetAlertStatusFromDto(AlertQueryDto alert)
         {
-            if (alert.AlertType == 1 && alert.Task != null && alert.Task.Status == 2)
+            if (alert.AlertType == 1 && alert.TaskStatus == 2)
             {
                 return 1;
             }
 
-            if (alert.AlertType == 2 && alert.Project != null && alert.Project.Status == 2)
+            if (alert.AlertType == 2 && alert.ProjectStatus == 2)
             {
                 return 1;
             }
@@ -538,9 +568,9 @@ namespace ProjectManagementSystem.Services.Implementations
             return 0;
         }
 
-        private static string GetAlertStatusName(Alert alert)
+        private static string GetAlertStatusNameFromDto(AlertQueryDto alert)
         {
-            return GetAlertStatus(alert) == 1 ? "已完成" : "超期中";
+            return GetAlertStatusFromDto(alert) == 1 ? "已完成" : "超期中";
         }
 
         private static List<string> ExtractDefaultAssigneeNames(string? description)
@@ -551,9 +581,9 @@ namespace ProjectManagementSystem.Services.Implementations
             }
 
             var line = description
-                .Split('\n')
-                .Select(item => item.Trim())
-                .FirstOrDefault(item => item.StartsWith("默认负责人：", StringComparison.Ordinal));
+            .Split('\n')
+            .Select(item => item.Trim())
+            .FirstOrDefault(item => item.StartsWith("默认负责人：", StringComparison.Ordinal));
 
             if (string.IsNullOrWhiteSpace(line))
             {
@@ -561,33 +591,40 @@ namespace ProjectManagementSystem.Services.Implementations
             }
 
             return line.Replace("默认负责人：", string.Empty)
-                .Split(new[] { '、', '，', ',', ';', '；' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Distinct()
-                .ToList();
+            .Split(new[] { '、', '，', ',', ';', '；' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct()
+            .ToList();
         }
 
-        private static string? BuildTaskAssigneeDisplay(TaskEntity? task, Dictionary<string, string> userDisplayNameMap)
+        private static string? BuildTaskAssigneeDisplay(string? taskDescription, string? assigneeRealName, string? assigneeUsername, Dictionary<string, string> userDisplayNameMap)
         {
-            if (task == null)
+            if (string.IsNullOrEmpty(taskDescription))
             {
-                return null;
+                // 没有描述，直接返回主负责人
+                return GetDisplayNameFromFields(assigneeRealName, assigneeUsername);
             }
 
-            var names = ExtractDefaultAssigneeNames(task.Description)
-                .Select(username => userDisplayNameMap.TryGetValue(username, out var displayName) ? displayName : username)
-                .Distinct()
-                .ToList();
+            var names = ExtractDefaultAssigneeNames(taskDescription)
+            .Select(username => userDisplayNameMap.TryGetValue(username, out var displayName) ? displayName : username)
+            .Distinct()
+            .ToList();
 
-            if (task.Assignee != null)
+            var primaryAssigneeName = GetDisplayNameFromFields(assigneeRealName, assigneeUsername);
+            if (!string.IsNullOrEmpty(primaryAssigneeName) && !names.Contains(primaryAssigneeName))
             {
-                var primaryAssigneeName = GetDisplayName(task.Assignee);
-                if (!names.Contains(primaryAssigneeName))
-                {
-                    names.Insert(0, primaryAssigneeName);
-                }
+                names.Insert(0, primaryAssigneeName);
             }
 
             return names.Any() ? string.Join("、", names) : null;
+        }
+
+        private static string? GetDisplayNameFromFields(string? realName, string? username)
+        {
+            if (!string.IsNullOrWhiteSpace(realName))
+                return realName;
+            if (!string.IsNullOrWhiteSpace(username))
+                return username;
+            return null;
         }
 
         private static string? ExtractProjectOverdueReasonFromMessage(string? message)
@@ -659,12 +696,12 @@ namespace ProjectManagementSystem.Services.Implementations
         {
             var names = ExtractDefaultAssigneeNames(task.Description);
             var ids = names.Any()
-                ? await _context.Users
-                    .AsNoTracking()
-                    .Where(u => names.Contains(u.Username))
-                    .Select(u => u.Id)
-                    .ToListAsync()
-                : new List<int>();
+            ? await _context.Users
+            .AsNoTracking()
+            .Where(u => names.Contains(u.Username))
+            .Select(u => u.Id)
+            .ToListAsync()
+            : new List<int>();
 
             if (task.AssigneeId.HasValue && !ids.Contains(task.AssigneeId.Value))
             {

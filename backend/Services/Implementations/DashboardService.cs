@@ -52,13 +52,23 @@ namespace ProjectManagementSystem.Services.Implementations
             var totalTasks = await taskQuery.CountAsync();
             var overdueTasks = await taskQuery
                 .CountAsync(t => t.DueDate.HasValue && t.DueDate.Value < AppTime.Now && t.Status != 2 && t.Status != 3);
+            var projectStatusCounts = await projectQuery
+                .GroupBy(p => p.Status)
+                .Select(g => new { Status = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(item => item.Status, item => item.Count);
+            var taskStatusCounts = await taskQuery
+                .GroupBy(t => t.Status)
+                .Select(g => new { Status = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(item => item.Status, item => item.Count);
 
             return new DashboardOverviewDto
             {
                 TotalProjects = totalProjects,
                 ActiveProjects = activeProjects,
                 TotalTasks = totalTasks,
-                OverdueTasks = overdueTasks
+                OverdueTasks = overdueTasks,
+                ProjectStatusCounts = projectStatusCounts,
+                TaskStatusCounts = taskStatusCounts
             };
         }
 

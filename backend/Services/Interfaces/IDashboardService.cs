@@ -14,5 +14,7 @@ namespace ProjectManagementSystem.Services.Interfaces
         public int ActiveProjects { get; set; }
         public int TotalTasks { get; set; }
         public int OverdueTasks { get; set; }
+        public Dictionary<int, int> ProjectStatusCounts { get; set; } = new();
+        public Dictionary<int, int> TaskStatusCounts { get; set; } = new();
     }
 }

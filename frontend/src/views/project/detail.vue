@@ -8,9 +8,8 @@
         </div>
       </template>
 
-      <el-descriptions v-if="project" :column="2" border>
-        <el-descriptions-item label="项目ID">{{ project.id }}</el-descriptions-item>
-        <el-descriptions-item label="项目名称">{{ project.name }}</el-descriptions-item>
+    <el-descriptions v-if="project" :column="2" border>
+      <el-descriptions-item label="项目名称" :span="2">{{ project.name }}</el-descriptions-item>
         <el-descriptions-item label="负责人">{{ project.managerName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="优先级">
           <el-tag :type="getPriorityType(project.priority)">{{ project.priorityName || getPriorityName(project.priority)
@@ -34,7 +33,10 @@
         <el-descriptions-item label="描述" :span="2">{{ project.description || '-' }}</el-descriptions-item>
       </el-descriptions>
 
-      <el-divider content-position="left">任务甘特图</el-divider>
+      <div class="section-header">
+      <span class="section-title">任务甘特图</span>
+      <div class="section-line"></div>
+    </div>
       <div v-if="ganttRows.length" class="gantt-wrapper">
         <div class="gantt-legend">
           <div class="gantt-legend-item"><span class="legend-dot normal-completed" />绿色：正常完成</div>
@@ -94,10 +96,11 @@
       </div>
       <el-empty v-else description="暂无可展示的任务时间数据" />
 
-      <div class="member-section-header">
-        <el-divider content-position="left">项目成员</el-divider>
-        <el-button v-if="canManageMembers" type="primary" @click="openMemberDialog">添加项目成员</el-button>
-      </div>
+    <div class="section-header">
+      <span class="section-title">项目成员</span>
+      <div class="section-line"></div>
+      <el-button v-if="canManageMembers" type="primary" @click="openMemberDialog">添加项目成员</el-button>
+    </div>
       <el-table v-if="sortedMembers.length" :data="sortedMembers" style="width: 100%">
         <el-table-column prop="username" label="用户名" width="180" />
         <el-table-column prop="phone" label="电话" width="160">
@@ -136,7 +139,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { request } from '@/api/request'
 import dayjs from 'dayjs'
@@ -311,6 +314,8 @@ const sortedMembers = computed(() => {
   })
 })
 
+const setDynamicTitle = inject<(path: string, title: string) => void>('setDynamicTitle')
+
 const fetchProjectDetail = async () => {
   loading.value = true
   try {
@@ -318,6 +323,10 @@ const fetchProjectDetail = async () => {
       headers: { 'X-Silent-Error': '1' }
     })
     project.value = res.data
+    // 设置标签栏动态标题
+    if (project.value?.name && setDynamicTitle) {
+      setDynamicTitle(route.fullPath, project.value.name)
+    }
   } catch (error) {
     const status = (error as any)?.response?.status
     if (status === 403 && !permissionWarningShown.value) {
@@ -566,16 +575,26 @@ onMounted(async () => {
   margin-left: 8px;
 }
 
-.member-section-header {
+.section-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
+  margin: 24px 0 16px 0;
+  padding: 0 4px;
 }
 
-.member-section-header :deep(.el-divider) {
-  margin: 18px 0;
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+  white-space: nowrap;
+}
+
+.section-line {
   flex: 1;
+  height: 1px;
+  background: #e0e0e0;
+  min-width: 40px;
 }
 
 .gantt-wrapper {

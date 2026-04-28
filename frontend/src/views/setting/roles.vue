@@ -171,12 +171,81 @@ onMounted(() => {
 
 <style scoped>
 .roles-page {
-  padding: 10px;
+  --biz-card-bg: rgba(255, 255, 255, 0.94);
+  --biz-card-border: #d7e4f8;
+  --biz-text-strong: #0f3b8c;
+  padding: 12px;
+  min-height: 100%;
+  box-sizing: border-box;
+  background: #f5f8fc;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+}
+
+.card-header > span {
+  font-size: 20px;
+  color: var(--biz-text-strong);
+  font-weight: 800;
+}
+
+.roles-page :deep(.el-card) {
+  border-radius: 16px;
+  border: 1px solid var(--biz-card-border);
+  background: var(--biz-card-bg);
+  box-shadow: 0 18px 40px rgba(36, 66, 135, 0.12);
+  overflow: hidden;
+}
+
+.roles-page :deep(.el-card__header) {
+  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  border-bottom: 1px solid #dce8fb;
+}
+
+.roles-page :deep(.el-card__body) {
+  padding: 14px;
+}
+
+.roles-page :deep(.el-table) {
+  border-radius: 12px;
+  border: 1px solid #dce8fb;
+  overflow: hidden;
+}
+
+.roles-page :deep(.el-table th.el-table__cell) {
+  background: #f3f8ff;
+  color: #2e4566;
+  font-weight: 700;
+}
+
+.roles-page :deep(.el-table tr:hover > td.el-table__cell) {
+  background: #f5f9ff;
+}
+
+.roles-page :deep(.el-button) {
+  border-radius: 999px;
+}
+
+.roles-page :deep(.el-input__wrapper),
+.roles-page :deep(.el-textarea__inner) {
+  border-radius: 999px;
+}
+
+.roles-page :deep(.el-textarea__inner) {
+  border-radius: 12px;
+}
+
+@media (max-width: 900px) {
+  .roles-page {
+    padding: 8px;
+  }
+
+  .card-header > span {
+    font-size: 17px;
+  }
 }
 </style>
