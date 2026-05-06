@@ -2017,7 +2017,7 @@ onBeforeUnmount(() => {
 }
 
 .file-page :deep(.el-card__header) {
-  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  background: #f4f9ff;
   border-bottom: 1px solid #dce8fb;
 }
 
@@ -2116,7 +2116,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: linear-gradient(180deg, #f7fbff 0%, #f2f8ff 100%);
+  background: #f7fbff;
   box-shadow: 0 8px 20px rgba(22, 58, 123, 0.08);
 }
 
@@ -2320,13 +2320,13 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: #395171;
   border: 1px solid #d2e2fc;
-  background: linear-gradient(180deg, #fafdff 0%, #edf4ff 100%);
+  background: #fafdff;
 }
 
 .overview-chip.is-active {
   color: #fff;
   border-color: #2b6ff7;
-  background: linear-gradient(135deg, #3e7eff 0%, #2f67d9 100%);
+  background: #3e7eff;
 }
 
 .content-area {
@@ -2342,9 +2342,9 @@ onBeforeUnmount(() => {
 
 .icon-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px;
-  min-height: 300px;
+  min-height: 150px;
 }
 
 .empty-content-center {
@@ -2359,7 +2359,7 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   padding: 9px 9px 7px;
   min-height: 150px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  background: #ffffff;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -2412,11 +2412,31 @@ onBeforeUnmount(() => {
 
 .icon-card.folder-card {
   cursor: pointer;
+  min-height: 114px;
+  padding: 7px 9px 5px;
+  gap: 4px;
 }
 
 .icon-card.folder-card .icon-card-main {
   width: 100%;
   text-align: center;
+  gap: 0px;
+}
+
+.icon-card.folder-card .thumb-box {
+  width: 44px;
+  height: 44px;
+}
+
+.icon-card.folder-card .folder-thumb {
+  width: 44px;
+  height: 34px;
+}
+
+.icon-card.folder-card .folder-tab {
+  width: 18px;
+  height: 7px;
+  left: 4px;
 }
 
 .icon-card.folder-card .icon-actions:empty {
@@ -2449,7 +2469,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  background: linear-gradient(160deg, #f4f8ff 0%, #ecf3ff 100%);
+  background: #f4f8ff;
   border: 1px solid #dce8ff;
   overflow: hidden;
 }
@@ -2477,7 +2497,7 @@ onBeforeUnmount(() => {
   right: 0;
   bottom: 0;
   border-radius: 8px;
-  background: linear-gradient(160deg, #ffc748 0%, #f5b92a 100%);
+  background: #ffc748;
 }
 
 .thumb-image {

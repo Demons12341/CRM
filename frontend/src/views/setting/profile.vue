@@ -221,7 +221,7 @@ onMounted(() => {
   padding: 14px 16px;
   border-radius: 16px;
   border: 1px solid #dce8fb;
-  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  background: #f4f9ff;
   box-shadow: 0 10px 22px rgba(36, 66, 135, 0.08);
   margin-bottom: 14px;
 }
@@ -239,7 +239,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #3e7eff 0%, #2f67d9 100%);
+  background: #3e7eff;
   color: #fff;
   font-size: 22px;
   font-weight: 700;
@@ -309,7 +309,7 @@ onMounted(() => {
 }
 
 .profile-page :deep(.el-card__header) {
-  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  background: #f4f9ff;
   border-bottom: 1px solid #dce8fb;
 }
 

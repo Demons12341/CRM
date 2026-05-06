@@ -38,7 +38,10 @@ service.interceptors.response.use(
   (error) => {
     console.error('响应错误：', error)
     const headers = error.config?.headers || {}
-    const silentError = headers['X-Silent-Error'] === '1' || headers['x-silent-error'] === '1'
+    const headerValue = typeof headers.get === 'function'
+      ? (headers.get('X-Silent-Error') || headers.get('x-silent-error'))
+      : (headers['X-Silent-Error'] || headers['x-silent-error'] || headers?.common?.['X-Silent-Error'] || headers?.common?.['x-silent-error'])
+    const silentError = headerValue === '1'
     
     if (error.response) {
       const { status, data } = error.response

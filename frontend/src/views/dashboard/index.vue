@@ -454,7 +454,7 @@ onMounted(() => {
   padding: 14px 16px;
   border: 1px solid #dce8fb;
   border-radius: 16px;
-  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  background: #f4f9ff;
   box-shadow: 0 10px 22px rgba(36, 66, 135, 0.08);
   display: flex;
   justify-content: space-between;
@@ -497,7 +497,7 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  background: #ffffff;
   border-radius: 14px;
   padding: 16px;
   display: flex;
@@ -602,7 +602,7 @@ onMounted(() => {
 }
 
 .chart-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  background: #ffffff;
   border-radius: 14px;
   border: 1px solid #dce8fb;
   overflow: hidden;
@@ -628,7 +628,7 @@ onMounted(() => {
 }
 
 .content-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  background: #ffffff;
   border-radius: 14px;
   border: 1px solid #dce8fb;
   display: flex;

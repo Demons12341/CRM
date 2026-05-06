@@ -141,7 +141,7 @@ namespace ProjectManagementSystem.Services.Implementations
                     OverdueReason = t.OverdueReason,
                     CreatedAt = t.CreatedAt,
                     UpdatedAt = t.UpdatedAt,
-                    IsOverdue = t.DueDate.HasValue && t.DueDate.Value < AppTime.Now && t.Status != 2
+                    IsOverdue = t.DueDate.HasValue && t.DueDate.Value < AppTime.Today && t.Status != 2 && t.Status != 3
                 })
                 .ToListAsync();
 
@@ -234,7 +234,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 OverdueReason = task.OverdueReason,
                 CreatedAt = task.CreatedAt,
                 UpdatedAt = task.UpdatedAt,
-                IsOverdue = task.DueDate.HasValue && task.DueDate.Value < AppTime.Now && task.Status != 2
+                IsOverdue = task.DueDate.HasValue && task.DueDate.Value < AppTime.Today && task.Status != 2 && task.Status != 3
             };
 
             var collaboratorNames = ExtractDefaultAssigneeNames(task.Description);

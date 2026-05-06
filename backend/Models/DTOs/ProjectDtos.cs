@@ -71,6 +71,7 @@ namespace ProjectManagementSystem.Models.DTOs
         public int MemberCount { get; set; }
         public int TaskCount { get; set; }
         public decimal Progress { get; set; }
+        public bool HasOverdueTask { get; set; }
     }
 
     public class ProjectListRequest

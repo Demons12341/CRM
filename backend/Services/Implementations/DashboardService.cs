@@ -51,7 +51,7 @@ namespace ProjectManagementSystem.Services.Implementations
             var activeProjects = await projectQuery.CountAsync(p => p.Status == 1);
             var totalTasks = await taskQuery.CountAsync();
             var overdueTasks = await taskQuery
-                .CountAsync(t => t.DueDate.HasValue && t.DueDate.Value < AppTime.Now && t.Status != 2 && t.Status != 3);
+                .CountAsync(t => t.DueDate.HasValue && t.DueDate.Value < AppTime.Today && t.Status != 2 && t.Status != 3);
             var projectStatusCounts = await projectQuery
                 .GroupBy(p => p.Status)
                 .Select(g => new { Status = g.Key, Count = g.Count() })
@@ -117,7 +117,7 @@ namespace ProjectManagementSystem.Services.Implementations
                     Progress = t.Progress,
                     CreatedAt = t.CreatedAt,
                     UpdatedAt = t.UpdatedAt,
-                    IsOverdue = t.DueDate.HasValue && t.DueDate.Value < AppTime.Now && t.Status != 2
+                    IsOverdue = t.DueDate.HasValue && t.DueDate.Value < AppTime.Today && t.Status != 2 && t.Status != 3
                 })
                 .OrderByDescending(t => t.CreatedAt)
                 .Take(10)

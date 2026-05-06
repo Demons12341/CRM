@@ -468,7 +468,7 @@ onMounted(() => {
 }
 
 .users-page :deep(.el-card__header) {
-  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  background: #f4f9ff;
   border-bottom: 1px solid #dce8fb;
 }
 

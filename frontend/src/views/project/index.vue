@@ -270,7 +270,6 @@ const processTemplates = ref<any[]>([])
 const selectedProject = ref<any | null>(null)
 const currentUser = ref<any | null>(null)
 const isAdmin = ref(false)
-const overdueTaskProjectIds = ref<Set<number>>(new Set())
 const SHARED_FOLDER_PROJECT_NAME = '共享文件夹'
 
 const searchForm = reactive({
@@ -357,7 +356,6 @@ const fetchProjects = async () => {
     
     const res = await request.get('/projects', { params })
     projects.value = res.data.items
-    await fetchOverdueProjectFlags()
     selectedProject.value = null
     projectTableRef.value?.clearSelection()
     pagination.total = res.data.totalCount
@@ -365,50 +363,6 @@ const fetchProjects = async () => {
     console.error('获取项目列表失败：', error)
   } finally {
     loading.value = false
-  }
-}
-
-const fetchOverdueProjectFlags = async () => {
-  if (!projects.value.length) {
-    overdueTaskProjectIds.value = new Set<number>()
-    return
-  }
-
-  try {
-    const overdueIds = new Set<number>()
-    const validProjectIdSet = new Set<number>(projects.value.map((project: any) => Number(project.id)))
-
-    const pageSize = 200
-    let page = 1
-    let totalPages = 1
-
-    while (page <= totalPages) {
-      const res = await request.get('/tasks', {
-        params: {
-          page,
-          pageSize,
-          overdueOnly: true
-        },
-        headers: { 'X-Silent-Error': '1' }
-      })
-
-      const items = Array.isArray(res.data.items) ? res.data.items : []
-      totalPages = Number(res.data.totalPages || 1) || 1
-
-      for (const item of items) {
-        const projectId = Number(item?.projectId)
-        if (projectId > 0 && validProjectIdSet.has(projectId)) {
-          overdueIds.add(projectId)
-        }
-      }
-
-      page += 1
-    }
-
-    overdueTaskProjectIds.value = overdueIds
-  } catch (error) {
-    overdueTaskProjectIds.value = new Set<number>()
-    console.error('获取项目超期任务标记失败：', error)
   }
 }
 
@@ -654,13 +608,19 @@ const getUserLabel = (user: any) => {
   return user.realName ? `${user.realName} (${user.username})` : user.username
 }
 
+const getProjectOverdueTaskFlag = (project: any) => {
+  if (!project) return false
+  if (typeof project.hasOverdueTask === 'boolean') return project.hasOverdueTask
+  if (typeof project.HasOverdueTask === 'boolean') return project.HasOverdueTask
+  return false
+}
+
 const isSharedFolderProject = (project: any) => {
-  return `${project?.name || ''}`.trim() === SHARED_FOLDER_PROJECT_NAME
+  return `${project?.name || ''}`.trim() ===   SHARED_FOLDER_PROJECT_NAME
 }
 
 const hasOverdueTask = (project: any) => {
-  const projectId = Number(project?.id)
-  return projectId > 0 && overdueTaskProjectIds.value.has(projectId)
+  return getProjectOverdueTaskFlag(project)
 }
 
 const isProjectOverdue = (project: any) => {
@@ -772,7 +732,7 @@ onMounted(() => {
 }
 
 .project-page :deep(.el-card__header) {
-  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  background: #f4f9ff;
   border-bottom: 1px solid #dce8fb;
 }
 

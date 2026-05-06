@@ -156,7 +156,7 @@
                 </el-table-column>
                 <el-table-column prop="dueDate" label="预计截止日期" min-width="110">
                   <template #default="{ row }">
-                    <span :class="{ 'overdue': row.isOverdue }">{{ formatDate(row.dueDate) }}</span>
+                    <span :class="{ 'overdue': isTaskOverdueRow(row) }">{{ formatDate(row.dueDate) }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column prop="completedAt" label="实际结束时间" min-width="110">
@@ -347,7 +347,8 @@ const exportTemplateDialogVisible = ref(false)
 const selectedExportProjectName = ref('')
 const projectSearchKeyword = ref('')
 const projectAccessDenied = ref(false)
-const overdueTaskProjectIds = ref<Set<number>>(new Set())
+const projectAccessWarningShown = ref(false)
+const lastDeniedProjectId = ref<number | null>(null)
 const pendingFocusTaskId = ref<number | null>(null)
 const rowPriorityUpdatingId = ref<number | null>(null)
 const rowStatusUpdatingId = ref<number | null>(null)
@@ -441,6 +442,13 @@ const selectedProjectNameForCreate = computed(() => {
   return target?.name || '-'
 })
 
+const getProjectOverdueTaskFlag = (project: any) => {
+  if (!project) return false
+  if (typeof project.hasOverdueTask === 'boolean') return project.hasOverdueTask
+  if (typeof project.HasOverdueTask === 'boolean') return project.HasOverdueTask
+  return false
+}
+
 const canCreateTask = computed(() => {
   return !!searchForm.projectId && !projectAccessDenied.value
 })
@@ -480,7 +488,7 @@ const isProjectOverdue = (project: any) => {
 
 const buildProjectStatusSummary = (project: any) => {
   const statusName = getProjectStatusName(project)
-  const hasTaskOverdue = overdueTaskProjectIds.value.has(Number(project?.id))
+  const hasTaskOverdue = getProjectOverdueTaskFlag(project)
   const hasProjectOverdue = isProjectOverdue(project)
 
   const statusClassMap: Record<string, string> = {
@@ -555,6 +563,31 @@ const getApiErrorMessage = (error: any, fallback: string) => {
   return fallback
 }
 
+const normalizeQuery = (query: Record<string, any>) => {
+  const normalized: Record<string, string> = {}
+  Object.keys(query || {}).forEach((key) => {
+    const value = query[key]
+    if (value === undefined || value === null || value === '') return
+    if (Array.isArray(value)) {
+      if (value.length > 0 && value[0] !== undefined && value[0] !== null) {
+        normalized[key] = String(value[0])
+      }
+      return
+    }
+    normalized[key] = String(value)
+  })
+  return normalized
+}
+
+const isSameQuery = (left: Record<string, any>, right: Record<string, any>) => {
+  const leftNormalized = normalizeQuery(left)
+  const rightNormalized = normalizeQuery(right)
+  const leftKeys = Object.keys(leftNormalized).sort()
+  const rightKeys = Object.keys(rightNormalized).sort()
+  if (leftKeys.length !== rightKeys.length) return false
+  return leftKeys.every((key, index) => key === rightKeys[index] && leftNormalized[key] === rightNormalized[key])
+}
+
 const syncListRouteQuery = (options?: { focusTaskId?: number | null }) => {
   const nextQuery: Record<string, any> = {
     ...route.query
@@ -595,10 +628,15 @@ const syncListRouteQuery = (options?: { focusTaskId?: number | null }) => {
     }
   }
 
-  router.replace({
-    path: '/tasks',
-    query: nextQuery
-  })
+  if (!isSameQuery(route.query as Record<string, any>, nextQuery)) {
+    router.replace({
+      path: '/tasks',
+      query: nextQuery
+    })
+    return true
+  }
+
+  return false
 }
 
 const fetchTasks = async () => {
@@ -631,6 +669,8 @@ const fetchTasks = async () => {
     taskTableRef.value?.clearSelection()
     pagination.total = res.data.totalCount
     projectAccessDenied.value = false
+    projectAccessWarningShown.value = false
+    lastDeniedProjectId.value = null
 
     const focusTaskIdFromRoute = Number(route.query.focusTaskId)
     const focusTaskId = pendingFocusTaskId.value || (focusTaskIdFromRoute > 0 ? focusTaskIdFromRoute : null)
@@ -652,7 +692,17 @@ const fetchTasks = async () => {
     taskTableRef.value?.clearSelection()
     const statusCode = (error as any)?.response?.status
     projectAccessDenied.value = statusCode === 403
-    ElMessage.warning(getApiErrorMessage(error, '获取任务列表失败，请稍后重试'))
+    if (statusCode === 403) {
+      const currentProjectId = Number(searchForm.projectId || 0)
+      const shouldWarn = !projectAccessWarningShown.value || lastDeniedProjectId.value !== currentProjectId
+      if (shouldWarn) {
+        ElMessage.warning(getApiErrorMessage(error, '暂无该项目访问权限'))
+        projectAccessWarningShown.value = true
+        lastDeniedProjectId.value = currentProjectId
+      }
+    } else {
+      ElMessage.warning(getApiErrorMessage(error, '获取任务列表失败，请稍后重试'))
+    }
     console.error('获取任务列表失败：', error)
   } finally {
     loading.value = false
@@ -665,8 +715,6 @@ const fetchProjects = async () => {
     const items = Array.isArray(res.data.items) ? res.data.items : []
     projects.value = items.filter((project: any) => `${project?.name || ''}`.trim() !== SHARED_FOLDER_PROJECT_NAME)
 
-    await fetchOverdueProjectFlags()
-
     if (searchForm.projectId && !projects.value.some((project: any) => project.id === searchForm.projectId)) {
       searchForm.projectId = undefined
     }
@@ -676,51 +724,6 @@ const fetchProjects = async () => {
     }
   } catch (error) {
     console.error('获取项目列表失败：', error)
-  }
-}
-
-const fetchOverdueProjectFlags = async () => {
-  if (!projects.value.length) {
-    overdueTaskProjectIds.value = new Set<number>()
-    return
-  }
-
-  try {
-    const overdueIds = new Set<number>()
-    const validProjectIdSet = new Set<number>(projects.value.map((project: any) => Number(project.id)))
-
-    const pageSize = 200
-    let page = 1
-    let totalPages = 1
-
-    while (page <= totalPages) {
-      const res = await request.get('/tasks', {
-        params: {
-          page,
-          pageSize,
-          overdueOnly: true
-        },
-        headers: { 'X-Silent-Error': '1' }
-      })
-
-      const items = Array.isArray(res.data.items) ? res.data.items : []
-      const fetchedTotalPages = Number(res.data.totalPages || 1)
-      totalPages = fetchedTotalPages > 0 ? fetchedTotalPages : 1
-
-      for (const item of items) {
-        const projectId = Number(item?.projectId)
-        if (projectId > 0 && validProjectIdSet.has(projectId)) {
-          overdueIds.add(projectId)
-        }
-      }
-
-      page += 1
-    }
-
-    overdueTaskProjectIds.value = overdueIds
-  } catch (error) {
-    overdueTaskProjectIds.value = new Set<number>()
-    console.error('获取项目超期任务标记失败：', error)
   }
 }
 
@@ -759,8 +762,10 @@ const handleProjectNodeClick = (node: any) => {
 
 const handleSearch = () => {
   pagination.page = 1
-  syncListRouteQuery({ focusTaskId: null })
-  fetchTasks()
+  const replaced = syncListRouteQuery({ focusTaskId: null })
+  if (!replaced) {
+    fetchTasks()
+  }
 }
 
 const resetSearch = () => {
@@ -1331,11 +1336,14 @@ const formatDate = (date: string) => {
 const isCompletedLate = (row: any) => {
   if (!row || row.status !== 2) return false
   if (!row.completedAt || !row.dueDate) return false
-  return dayjs(row.completedAt).isAfter(dayjs(row.dueDate))
+  return dayjs(row.completedAt).isAfter(dayjs(row.dueDate), 'day')
 }
 
 const isTaskOverdueRow = (row: any) => {
-  return !!row?.isOverdue
+  if (!row?.dueDate) return false
+  const status = Number(row.status)
+  if (status === 2 || status === 3) return false
+  return dayjs().isAfter(dayjs(row.dueDate), 'day')
 }
 
 const getTaskRowClass = ({ row }: { row: any }) => {
@@ -1374,8 +1382,10 @@ onMounted(async () => {
   if (!searchForm.projectId && projects.value.length > 0) {
     searchForm.projectId = projects.value[0].id
   }
-  syncListRouteQuery({ focusTaskId: pendingFocusTaskId.value })
-  await fetchTasks()
+  const replaced = syncListRouteQuery({ focusTaskId: pendingFocusTaskId.value })
+  if (!replaced) {
+    await fetchTasks()
+  }
   fetchUsers()
   fetchProcessTemplates()
 })
@@ -1410,7 +1420,7 @@ onMounted(async () => {
 }
 
 .task-page :deep(.el-card__header) {
-  background: linear-gradient(140deg, #f4f9ff 0%, #f5fcf8 100%);
+  background: #f4f9ff;
   border-bottom: 1px solid #dce8fb;
 }
 
@@ -1438,7 +1448,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: linear-gradient(180deg, #f7fbff 0%, #f2f8ff 100%);
+  background: #f7fbff;
   box-shadow: 0 8px 20px rgba(22, 58, 123, 0.08);
 }
 
@@ -1466,8 +1476,10 @@ onMounted(async () => {
 
 .left-tree-panel :deep(.el-tree-node__content) {
   min-height: 36px;
+  height: auto;
+  align-items: flex-start;
   border-radius: 8px;
-  padding: 4px 6px;
+  padding: 6px;
 }
 
 .left-tree-panel :deep(.el-tree-node__content:hover) {
@@ -1485,6 +1497,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 3px;
   max-width: calc(100% - 24px);
+  width: 100%;
   padding-right: 6px;
 }
 
@@ -1518,6 +1531,7 @@ onMounted(async () => {
   gap: 4px;
   flex-wrap: wrap;
   min-height: 18px;
+  line-height: 1.2;
 }
 
 .project-tree-badge {

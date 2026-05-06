@@ -80,7 +80,8 @@ namespace ProjectManagementSystem.Services.Implementations
                     TaskCount = p.Tasks.Count,
                     Progress = p.Tasks.Count > 0
                         ? Math.Round((decimal)p.Tasks.Count(t => t.Status == 2) * 100m / p.Tasks.Count, 2)
-                        : 0
+                        : 0,
+                    HasOverdueTask = p.Tasks.Any(t => t.DueDate.HasValue && t.DueDate.Value < today && t.Status != 2 && t.Status != 3)
                 })
                 .ToListAsync();
 
@@ -127,7 +128,8 @@ namespace ProjectManagementSystem.Services.Implementations
                 TaskCount = project.Tasks.Count,
                 Progress = project.Tasks.Count > 0
                     ? Math.Round((decimal)project.Tasks.Count(t => t.Status == 2) * 100m / project.Tasks.Count, 2)
-                    : 0
+                    : 0,
+                HasOverdueTask = project.Tasks.Any(t => t.DueDate.HasValue && t.DueDate.Value < AppTime.Today && t.Status != 2 && t.Status != 3)
             };
         }
 
