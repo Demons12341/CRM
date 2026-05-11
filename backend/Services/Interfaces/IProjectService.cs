@@ -15,5 +15,6 @@ namespace ProjectManagementSystem.Services.Interfaces
         Task<List<ProjectMemberDto>> GetProjectMembersAsync(int projectId);
         Task<ProjectMemberDto> AddProjectMemberAsync(int projectId, AddProjectMemberRequest request);
         Task<bool> RemoveProjectMemberAsync(int projectId, int userId);
+        Task<ProjectMemberDto> UpdateMemberRoleAsync(int projectId, int userId, UpdateMemberRoleRequest request);
     }
 }

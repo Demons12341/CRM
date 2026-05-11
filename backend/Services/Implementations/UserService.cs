@@ -57,7 +57,9 @@ namespace ProjectManagementSystem.Services.Implementations
                     RoleName = u.Role.Name,
                     CreatedAt = u.CreatedAt,
                     UpdatedAt = u.UpdatedAt,
-                    IsActive = u.IsActive
+                    IsActive = u.IsActive,
+                    LastLoginAt = u.LastLoginAt,
+                    LoginCount = u.LoginCount
                 })
                 .ToListAsync();
 
@@ -92,7 +94,9 @@ namespace ProjectManagementSystem.Services.Implementations
                 RoleName = user.Role.Name,
                 CreatedAt = user.CreatedAt,
                 UpdatedAt = user.UpdatedAt,
-                IsActive = user.IsActive
+                IsActive = user.IsActive,
+                LastLoginAt = user.LastLoginAt,
+                LoginCount = user.LoginCount
             };
         }
 

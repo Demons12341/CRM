@@ -174,7 +174,9 @@ const hasPermission = (permission?: string) => {
   if (!Array.isArray(user.value?.permissions)) return false
 
   const permissions = user.value.permissions
-  return permissions.includes(permission)
+  if (permissions.includes('*') || permissions.includes(permission)) return true
+
+  return permissions.some((p: string) => p.startsWith(`${permission}.`))
 }
 
 const canShowRoute = (route: any) => {

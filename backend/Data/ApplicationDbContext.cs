@@ -24,6 +24,7 @@ namespace ProjectManagementSystem.Data
         public DbSet<Alert> Alerts { get; set; }
         public DbSet<ProcessTemplate> ProcessTemplates { get; set; }
         public DbSet<ProcessTemplateStep> ProcessTemplateSteps { get; set; }
+        public DbSet<BusinessLine> BusinessLines { get; set; }
 
         public override int SaveChanges()
         {
@@ -228,6 +229,13 @@ namespace ProjectManagementSystem.Data
                     .WithMany(t => t.Steps)
                     .HasForeignKey(e => e.ProcessTemplateId)
                     .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // 配置BusinessLine实体
+            modelBuilder.Entity<BusinessLine>(entity =>
+            {
+                entity.HasQueryFilter(e => !e.IsDeleted);
+                entity.HasIndex(e => e.Name).IsUnique();
             });
 
             // 初始化角色数据

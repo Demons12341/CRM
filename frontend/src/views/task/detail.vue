@@ -712,10 +712,7 @@ const goBack = () => {
   router.push({
     path: '/tasks',
     query: {
-      projectId: route.query.projectId,
-      focusTaskId: route.query.focusTaskId,
-      overdueOnly: route.query.overdueOnly,
-      myOpenScope: route.query.myOpenScope
+      projectId: route.query.projectId
     }
   })
 }

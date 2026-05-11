@@ -27,12 +27,25 @@ service.interceptors.request.use(
 service.interceptors.response.use(
   (response: AxiosResponse) => {
     const res = response.data
-    
-    if (!res.success) {
-      ElMessage.error(res.message || '请求失败')
-      return Promise.reject(new Error(res.message || '请求失败'))
+
+    if (res && typeof res === 'object' && ('success' in res || 'Success' in res)) {
+      const normalizedSuccess = (res as any).success ?? (res as any).Success
+      const normalizedMessage = (res as any).message ?? (res as any).Message
+      const normalizedData = (res as any).data ?? (res as any).Data
+
+      if (!normalizedSuccess) {
+        ElMessage.error(normalizedMessage || '请求失败')
+        return Promise.reject(new Error(normalizedMessage || '请求失败'))
+      }
+
+      return {
+        ...res,
+        success: normalizedSuccess,
+        message: normalizedMessage,
+        data: normalizedData
+      }
     }
-    
+
     return res
   },
   (error) => {

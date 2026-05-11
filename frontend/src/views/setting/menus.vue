@@ -3,7 +3,7 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span>菜单权限</span>
+          <span>权限管理</span>
         </div>
       </template>
 
@@ -19,7 +19,7 @@
         v-if="currentRole?.name === '管理员'"
         type="info"
         :closable="false"
-        title="管理员默认拥有全部菜单权限，无需单独分配"
+        title="管理员默认拥有全部权限，无需单独分配"
         style="margin-bottom: 16px"
       />
 

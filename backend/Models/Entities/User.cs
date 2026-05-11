@@ -33,6 +33,10 @@ namespace ProjectManagementSystem.Models.Entities
 
         public bool IsDeleted { get; set; } = false;
 
+        public DateTime? LastLoginAt { get; set; }
+
+        public int LoginCount { get; set; } = 0;
+
         // 导航属性
         [ForeignKey("RoleId")]
         public virtual Role Role { get; set; } = null!;

@@ -20,9 +20,20 @@
             <el-input v-model="projectSearchKeyword" size="small" clearable placeholder="搜索项目"
               class="project-search-input" />
           </div>
-          <el-tree v-if="filteredProjectTreeData.length" :data="filteredProjectTreeData" node-key="id"
-            :current-node-key="searchForm.projectId" :expand-on-click-node="false" highlight-current default-expand-all
-            @node-click="handleProjectNodeClick" />
+          <el-tree ref="fileProjectTreeRef" v-if="filteredProjectTreeData.length" :data="filteredProjectTreeData" node-key="id"
+            :current-node-key="searchForm.projectId" :expand-on-click-node="false" highlight-current
+            :props="{ children: 'children', label: 'label' }"
+            @node-click="handleProjectNodeClick">
+            <template #default="{ node, data }">
+              <span v-if="data.isBusinessLine" class="project-tree-node business-line-node" @click.stop="toggleFileBusinessLine(node)">
+                <span class="project-tree-name" :title="data.label">{{ data.label }}</span>
+                <span class="project-tree-meta">
+                  <el-tag size="small" type="info">{{ data.children?.length || 0 }}</el-tag>
+                </span>
+              </span>
+              <span v-else class="project-tree-name" :title="data.label">{{ data.label }}</span>
+            </template>
+          </el-tree>
           <el-empty v-else description="暂无项目" :image-size="60" />
         </aside>
 
@@ -62,22 +73,22 @@
               <el-button class="recycle-toggle-btn" size="small" @click="toggleRecycleMode">
                 {{ recycleMode ? '返回文件列表' : '回收站' }}
               </el-button>
-              <el-button v-if="!recycleMode" type="success" size="small" :disabled="!searchForm.projectId"
+              <el-button v-if="!recycleMode" type="success" size="small" v-permission="'files.upload'" :disabled="!searchForm.projectId"
                 @click="openCreateFolderDialog">
                 <el-icon>
                   <FolderAdd />
                 </el-icon>
                 新建文件夹
               </el-button>
-              <el-button v-if="!recycleMode" type="danger" size="small" :disabled="!selectedCount"
+              <el-button v-if="!recycleMode" type="danger" size="small" v-permission="'files.delete'" :disabled="!selectedCount"
                 @click="handleBulkDelete">
                 批量删除
               </el-button>
-              <el-button v-else type="danger" size="small" :disabled="!selectedCount"
+              <el-button v-else type="danger" size="small" v-permission="'files.delete'" :disabled="!selectedCount"
                 @click="handleBulkPermanentDelete">
                 批量彻底删除
               </el-button>
-              <el-upload v-if="!recycleMode" :action="uploadUrl" :headers="uploadHeaders" :data="uploadData"
+              <el-upload v-if="!recycleMode" v-permission="'files.upload'" :action="uploadUrl" :headers="uploadHeaders" :data="uploadData"
                 :before-upload="beforeUpload" :on-success="handleUploadSuccess" :on-error="handleUploadError"
                 :on-progress="handleUploadProgress" :show-file-list="false">
                 <el-button type="primary">
@@ -118,9 +129,9 @@
 
           <div v-if="recycleMode || searchForm.projectId" class="overview-row">
             <span class="overview-chip">视图：{{ recycleMode ? '回收站' : '文件列表' }}</span>
-            <span class="overview-chip">项目：{{ recycleMode ? '全部项目' : (currentProjectName || '-') }}</span>
-            <span class="overview-chip">目录：{{ folderPath.length ? folderPath[folderPath.length - 1].fileName : '项目根目录'
-            }}</span>
+            <!-- <span class="overview-chip">项目：{{ recycleMode ? '全部项目' : (currentProjectName || '-') }}</span> -->
+            <!-- <span class="overview-chip">目录：{{ folderPath.length ? folderPath[folderPath.length - 1].fileName : '项目根目录' -->
+            <!-- }}</span> -->
             <span class="overview-chip">条目：{{ files.length }}</span>
             <span v-if="selectedCount" class="overview-chip is-active">已选：{{ selectedCount }}</span>
           </div>
@@ -179,15 +190,15 @@
                   </div>
                   <div class="icon-actions">
                     <template v-if="recycleMode">
-                      <el-button class="action-btn action-restore" type="success" link size="small"
+                      <el-button v-permission="'files.delete'" class="action-btn action-restore" type="success" link size="small"
                         @click.stop="restoreEntry(file)">恢复</el-button>
-                      <el-button class="action-btn action-permanent" type="danger" link size="small"
+                      <el-button v-permission="'files.delete'" class="action-btn action-permanent" type="danger" link size="small"
                         @click.stop="permanentlyDeleteEntry(file)">彻底删除</el-button>
                     </template>
                     <template v-else-if="!file.isFolder">
                       <el-button class="action-btn action-preview" type="primary" link size="small"
                         @click.stop="openPreview(file)">预览</el-button>
-                      <el-button class="action-btn action-download" type="primary" link size="small"
+                      <el-button v-permission="'files.download'" class="action-btn action-download" type="primary" link size="small"
                         @click.stop="downloadFile(file)">下载</el-button>
                     </template>
                   </div>
@@ -260,6 +271,7 @@ import { useRoute } from 'vue-router'
 const route = useRoute()
 
 const loading = ref(false)
+const fileProjectTreeRef = ref<any>()
 const files = ref<any[]>([])
 const projects = ref<any[]>([])
 const thumbnailUrlMap = ref<Record<number, string>>({})
@@ -372,12 +384,53 @@ const uploadData = computed(() => {
   return data
 })
 
-const projectTreeData = computed(() =>
-  projects.value.map((project: any) => ({
-    id: normalizeProjectId(project),
-    label: `${getProjectName(project)}（${getProjectManagerName(project)}）`
-  }))
-)
+const BUSINESS_LINES = ref<string[]>([])
+
+const fetchBusinessLines = async () => {
+  try {
+    const res = await request.get('/business-lines')
+    BUSINESS_LINES.value = (res.data || []).map((bl: any) => bl.name)
+  } catch (error) {
+    BUSINESS_LINES.value = []
+  }
+}
+
+const projectTreeData = computed(() => {
+  const sharedFolder = projects.value.find((project: any) => getProjectName(project) === SHARED_FOLDER_PROJECT_NAME)
+  const otherProjects = projects.value.filter((project: any) => getProjectName(project) !== SHARED_FOLDER_PROJECT_NAME)
+
+  const groups: Record<string, any[]> = {}
+  for (const project of otherProjects) {
+    const bl = project.businessLine || '未分类业务线'
+    if (!groups[bl]) groups[bl] = []
+    groups[bl].push(project)
+  }
+
+  const orderedLines = [...BUSINESS_LINES.value, '未分类业务线'].filter(line => groups[line]?.length)
+
+  const result: any[] = []
+
+  if (sharedFolder) {
+    result.push({
+      id: normalizeProjectId(sharedFolder),
+      label: `${getProjectName(sharedFolder)}（${getProjectManagerName(sharedFolder)}）`
+    })
+  }
+
+  for (const line of orderedLines) {
+    result.push({
+      id: `bl_${line}`,
+      label: line,
+      isBusinessLine: true,
+      children: groups[line].map((project: any) => ({
+        id: normalizeProjectId(project),
+        label: `${getProjectName(project)}（${getProjectManagerName(project)}）`
+      }))
+    })
+  }
+
+  return result
+})
 
 const filteredProjectTreeData = computed(() => {
   const keyword = projectSearchKeyword.value.trim().toLowerCase()
@@ -385,9 +438,26 @@ const filteredProjectTreeData = computed(() => {
     return projectTreeData.value
   }
 
-  return projectTreeData.value.filter((project: any) =>
-    `${project.label || ''}`.toLowerCase().includes(keyword)
-  )
+  return projectTreeData.value
+    .filter((node: any) => {
+      if (node.isBusinessLine) {
+        return node.children?.some((child: any) =>
+          `${child.label || ''}`.toLowerCase().includes(keyword)
+        )
+      }
+      return `${node.label || ''}`.toLowerCase().includes(keyword)
+    })
+    .map((node: any) => {
+      if (node.isBusinessLine) {
+        return {
+          ...node,
+          children: node.children.filter((child: any) =>
+            `${child.label || ''}`.toLowerCase().includes(keyword)
+          )
+        }
+      }
+      return node
+    })
 })
 
 const currentProjectName = computed(() => {
@@ -793,6 +863,9 @@ const locateFileFromQuery = async () => {
 }
 
 const handleProjectNodeClick = (node: any) => {
+  if (node?.isBusinessLine) {
+    return
+  }
   const nextProjectId = Number(node?.id)
   if (!Number.isFinite(nextProjectId) || nextProjectId <= 0) {
     return
@@ -815,6 +888,10 @@ const handleProjectChange = () => {
   folderPath.value = []
   selectedFileIds.value = []
   fetchFiles()
+}
+
+const toggleFileBusinessLine = (treeNode: any) => {
+  treeNode.expanded = !treeNode.expanded
 }
 
 const openFolder = async (folder: any) => {
@@ -1974,6 +2051,7 @@ onMounted(() => {
   }
 
   window.addEventListener('click', closeEntryContextMenu)
+  fetchBusinessLines()
   fetchProjects()
 })
 
@@ -2152,6 +2230,41 @@ onBeforeUnmount(() => {
   background: #edf5ff;
 }
 
+.project-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.project-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.project-tree-meta {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.business-line-node {
+  cursor: pointer;
+}
+
+.business-line-node .project-tree-name {
+  font-weight: 600;
+  color: #0f3b8c;
+}
+
+.business-line-expand-icon {
+  font-size: 10px;
+  color: #909399;
+  width: 14px;
+  flex-shrink: 0;
+}
+
 .left-tree-panel :deep(.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content) {
   background: #dceaff;
   color: #1248a6;
@@ -2288,6 +2401,12 @@ onBeforeUnmount(() => {
 
 .path-project-name {
   color: var(--el-text-color-primary);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
 }
 
 .search-bar {

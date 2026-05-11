@@ -43,6 +43,10 @@ namespace ProjectManagementSystem.Services.Implementations
             var expiration = DateTime.UtcNow.AddMinutes(
                 Convert.ToDouble(_configuration["JwtSettings:ExpirationInMinutes"]));
 
+            user.LastLoginAt = DateTime.UtcNow;
+            user.LoginCount += 1;
+            await _context.SaveChangesAsync();
+
             return new LoginResponse
             {
                 Token = token,

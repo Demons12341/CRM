@@ -18,11 +18,13 @@ namespace ProjectManagementSystem.Services.Implementations
         private const string SharedFolderProjectName = "共享文件夹";
         private readonly ApplicationDbContext _context;
         private readonly IWebHostEnvironment _environment;
+        private readonly IPermissionService _permissionService;
 
-        public FileService(ApplicationDbContext context, IWebHostEnvironment environment)
+        public FileService(ApplicationDbContext context, IWebHostEnvironment environment, IPermissionService permissionService)
         {
             _context = context;
             _environment = environment;
+            _permissionService = permissionService;
         }
 
         public async Task<PaginatedResult<FileDto>> GetFilesByProjectIdAsync(int projectId, int? parentId, int? page, int? pageSize, string? keyword, bool recursive, int currentUserId)
@@ -1233,9 +1235,9 @@ namespace ProjectManagementSystem.Services.Implementations
             }
         }
 
-        private static bool IsAdmin(User user)
+        private bool IsAdmin(User user)
         {
-            return user.Role.Name == "管理员";
+            return _permissionService.HasPermission(user, "file.access_all");
         }
 
         private static bool IsProjectManager(Project project, int userId)
@@ -1248,7 +1250,7 @@ namespace ProjectManagementSystem.Services.Implementations
             return string.Equals(project.Name?.Trim(), SharedFolderProjectName, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool CanReadFile(User currentUser, Project project, FileEntity file, int currentUserId)
+        private bool CanReadFile(User currentUser, Project project, FileEntity file, int currentUserId)
         {
             if (file.IsFolder)
             {

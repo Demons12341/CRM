@@ -11,7 +11,8 @@
             <el-button :disabled="!canOperateTemplateActions" @click="exportMicrogridTemplate">
               导出微电网标准工序
             </el-button>
-            <el-button type="primary" :disabled="!canCreateTask" @click="showCreateDialog">
+            <el-button type="primary" v-permission="'tasks.create'" :disabled="!canCreateTask"
+              @click="showCreateDialog">
               <el-icon>
                 <Plus />
               </el-icon>
@@ -28,11 +29,24 @@
             <el-input v-model="projectSearchKeyword" size="small" clearable placeholder="搜索项目"
               class="project-search-input" />
           </div>
-          <el-tree v-if="filteredProjectTreeData.length" :data="filteredProjectTreeData" node-key="id"
-            :current-node-key="searchForm.projectId" :expand-on-click-node="false" highlight-current default-expand-all
-            @node-click="handleProjectNodeClick">
-            <template #default="{ data }">
-              <span class="project-tree-node">
+          <div v-if="!treeReady" class="tree-loading-placeholder">
+            <el-icon class="is-loading">
+              <Loading />
+            </el-icon>
+            <span>加载中...</span>
+          </div>
+          <el-tree v-else-if="filteredProjectTreeData.length" ref="projectTreeRef" :data="filteredProjectTreeData"
+            node-key="id" :current-node-key="searchForm.projectId" :expand-on-click-node="false" highlight-current
+            :props="{ children: 'children', label: 'label' }" @node-click="handleProjectNodeClick">
+            <template #default="{ node, data }">
+              <span v-if="data.isBusinessLine" class="project-tree-node business-line-node"
+                @click.stop="toggleBusinessLine(node)">
+                <span class="project-tree-name" :title="data.label">{{ data.label }}</span>
+                <span class="project-tree-meta">
+                  <el-tag size="small" type="info">{{ data.children?.length || 0 }} 个项目</el-tag>
+                </span>
+              </span>
+              <span v-else class="project-tree-node">
                 <span class="project-tree-name" :title="data.name">{{ data.name }}</span>
                 <span class="project-tree-meta">
                   <el-tag size="small" class="project-manager-tag" type="info" :title="data.managerDisplay">
@@ -75,7 +89,7 @@
               @click="claimSelectedTask">
               认领任务
             </el-button>
-            <el-button type="primary" :disabled="!selectedTask || !canOperateTask(selectedTask)"
+            <el-button type="primary" :disabled="!selectedTask || !canModifyDueDate(selectedTask)"
               @click="openDueDateDialog">
               修改预计截止日期
             </el-button>
@@ -169,7 +183,7 @@
                     <div class="action-inline">
                       <el-button type="primary" link @click="viewTask(row.id)">查看</el-button>
                       <el-button v-if="canClaimTask(row)" type="warning" link @click="claimTask(row)">认领</el-button>
-                      <el-popconfirm title="确定要删除这个任务吗？" @confirm="deleteTask(row.id)">
+                      <el-popconfirm v-permission="'tasks.delete'" title="确定要删除这个任务吗？" @confirm="deleteTask(row.id)">
                         <template #reference>
                           <el-button type="danger" link>删除</el-button>
                         </template>
@@ -197,7 +211,7 @@
         <el-form-item label="所属项目" prop="projectId">
           <el-input v-if="!isEdit && searchForm.projectId" :model-value="selectedProjectNameForCreate" disabled />
           <el-select v-else v-model="form.projectId" placeholder="请选择项目" filterable
-            @change="() => (form.assigneeIds = [])">
+            @change="(val: number) => { form.assigneeIds = []; fetchProjectMembers(val) }">
             <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
           </el-select>
         </el-form-item>
@@ -210,14 +224,16 @@
         <el-form-item label="责任人" prop="assigneeIds">
           <el-select v-model="form.assigneeIds" placeholder="请选择责任人（可多选）" filterable clearable multiple collapse-tags
             :max-collapse-tags="3" collapse-tags-tooltip>
-            <el-option v-for="user in users" :key="user.id" :label="getUserLabel(user)" :value="user.id" />
+            <el-option v-for="member in projectMembers" :key="member.userId" :label="member.username"
+              :value="member.userId" />
           </el-select>
         </el-form-item>
         <el-form-item label="预计开始时间" prop="startDate">
           <el-date-picker v-model="form.startDate" type="date" placeholder="选择预计开始时间" value-format="YYYY-MM-DD" />
         </el-form-item>
         <el-form-item label="预计截止日期" prop="dueDate">
-          <el-date-picker v-model="form.dueDate" type="date" placeholder="选择预计截止日期" value-format="YYYY-MM-DD" />
+          <el-date-picker v-model="form.dueDate" type="date" placeholder="选择预计截止日期" value-format="YYYY-MM-DD"
+            :disabled="isEdit && !canModifyDueDateForForm" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -317,21 +333,25 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules, TableInstance } from 'element-plus'
 import { request } from '@/api/request'
 import dayjs from 'dayjs'
+import { hasPermission } from '@/directives/permission'
 
 const router = useRouter()
 const route = useRoute()
 
 const loading = ref(false)
+const treeReady = ref(false)
 const submitting = ref(false)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const editId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
 const taskTableRef = ref<TableInstance>()
+const projectTreeRef = ref<any>()
 
 const tasks = ref<any[]>([])
 const projects = ref<any[]>([])
 const users = ref<any[]>([])
+const projectMembers = ref<any[]>([])
 const currentUser = ref<any>(null)
 const originalEditForm = ref<any | null>(null)
 const selectedTask = ref<any | null>(null)
@@ -457,6 +477,13 @@ const canOperateTemplateActions = computed(() => {
   return !!searchForm.projectId && !projectAccessDenied.value
 })
 
+const canModifyDueDateForForm = computed(() => {
+  if (!isEdit.value) return true
+  const editingTask = tasks.value.find((t: any) => Number(t.id) === Number(editId.value))
+  if (!editingTask) return true
+  return canModifyDueDate(editingTask)
+})
+
 const getProjectStatusName = (project: any) => {
   const fromApi = `${project?.statusName || ''}`.trim()
   if (fromApi) {
@@ -464,10 +491,16 @@ const getProjectStatusName = (project: any) => {
   }
 
   const statusMap: Record<number, string> = {
-    0: '规划中',
-    1: '进行中',
-    2: '已完成',
-    3: '已暂停'
+    0: '售前阶段',
+    2: '已中标，待签合同',
+    3: '需求确定阶段',
+    4: '设计阶段',
+    5: '采购生产阶段',
+    6: '装配阶段',
+    7: '测试阶段',
+    8: '已发货',
+    9: '现场调试',
+    10: '已完成'
   }
 
   return statusMap[Number(project?.status)] || '未知'
@@ -479,7 +512,7 @@ const isProjectOverdue = (project: any) => {
   }
 
   const status = Number(project?.status)
-  if (status === 2 || status === 3) {
+  if (status === 10) {
     return false
   }
 
@@ -492,17 +525,34 @@ const buildProjectStatusSummary = (project: any) => {
   const hasProjectOverdue = isProjectOverdue(project)
 
   const statusClassMap: Record<string, string> = {
-    '规划中': 'planning',
-    '进行中': 'active',
-    '已完成': 'done',
-    '已暂停': 'paused'
+    '售前阶段': 'presale',
+    '已中标，待签合同': 'bid',
+    '需求确定阶段': 'requirement',
+    '设计阶段': 'design',
+    '采购生产阶段': 'procurement',
+    '装配阶段': 'assembly',
+    '测试阶段': 'testing',
+    '已发货': 'shipped',
+    '现场调试': 'commissioning',
+    '已完成': 'done'
   }
 
   return {
     statusName,
-    statusClass: statusClassMap[statusName] || 'planning',
+    statusClass: statusClassMap[statusName] || 'presale',
     projectOverdue: hasProjectOverdue,
     taskOverdue: hasTaskOverdue
+  }
+}
+
+const BUSINESS_LINES = ref<string[]>([])
+
+const fetchBusinessLines = async () => {
+  try {
+    const res = await request.get('/business-lines')
+    BUSINESS_LINES.value = (res.data || []).map((bl: any) => bl.name)
+  } catch (error) {
+    BUSINESS_LINES.value = []
   }
 }
 
@@ -514,25 +564,35 @@ const filteredProjectTreeData = computed(() => {
     ? source.filter((item: any) => `${item?.name || ''}`.toLowerCase().includes(keyword))
     : source
 
-  return matched.map((item: any) => {
-    const statusMeta = buildProjectStatusSummary(item)
-    const managerName = `${item?.managerName || item?.projectManagerName || '-'}`.trim() || '-'
-    return {
-      id: item.id,
-      label: item.name,
-      name: item.name,
-      managerDisplay: managerName,
-      statusName: statusMeta.statusName,
-      statusClass: statusMeta.statusClass,
-      projectOverdue: statusMeta.projectOverdue,
-      taskOverdue: statusMeta.taskOverdue
-    }
-  })
-})
+  const groups: Record<string, any[]> = {}
+  for (const item of matched) {
+    const bl = item.businessLine || '未分类业务线'
+    if (!groups[bl]) groups[bl] = []
+    groups[bl].push(item)
+  }
 
-const getUserLabel = (user: any) => {
-  return user.realName ? `${user.realName} (${user.username})` : user.username
-}
+  const orderedLines = [...BUSINESS_LINES.value, '未分类业务线'].filter(line => groups[line]?.length)
+
+  return orderedLines.map(line => ({
+    id: `bl_${line}`,
+    label: line,
+    isBusinessLine: true,
+    children: groups[line].map((item: any) => {
+      const statusMeta = buildProjectStatusSummary(item)
+      const managerName = `${item?.managerName || item?.projectManagerName || '-'}`.trim() || '-'
+      return {
+        id: item.id,
+        label: item.name,
+        name: item.name,
+        managerDisplay: managerName,
+        statusName: statusMeta.statusName,
+        statusClass: statusMeta.statusClass,
+        projectOverdue: statusMeta.projectOverdue,
+        taskOverdue: statusMeta.taskOverdue
+      }
+    })
+  }))
+})
 
 const getApiErrorMessage = (error: any, fallback: string) => {
   const responseData = error?.response?.data
@@ -736,6 +796,20 @@ const fetchUsers = async () => {
   }
 }
 
+const fetchProjectMembers = async (projectId: number) => {
+  if (!projectId) {
+    projectMembers.value = []
+    return
+  }
+  try {
+    const res = await request.get(`/projects/${projectId}/members`)
+    projectMembers.value = res.data || []
+  } catch (error) {
+    console.error('获取项目成员失败：', error)
+    projectMembers.value = []
+  }
+}
+
 const fetchProcessTemplates = async () => {
   try {
     const res = await request.get('/process-templates')
@@ -746,6 +820,9 @@ const fetchProcessTemplates = async () => {
 }
 
 const handleProjectNodeClick = (node: any) => {
+  if (node?.isBusinessLine) {
+    return
+  }
   const nextProjectId = Number(node?.id || 0)
   if (!nextProjectId) {
     return
@@ -757,15 +834,17 @@ const handleProjectNodeClick = (node: any) => {
 
   searchForm.projectId = nextProjectId
   selectedTask.value = null
-  handleSearch()
+  pagination.page = 1
+  fetchTasks()
+}
+
+const toggleBusinessLine = (treeNode: any) => {
+  treeNode.expanded = !treeNode.expanded
 }
 
 const handleSearch = () => {
   pagination.page = 1
-  const replaced = syncListRouteQuery({ focusTaskId: null })
-  if (!replaced) {
-    fetchTasks()
-  }
+  fetchTasks()
 }
 
 const resetSearch = () => {
@@ -779,7 +858,8 @@ const resetSearch = () => {
 
 const togglePrioritySort = () => {
   searchForm.sortBy = searchForm.sortBy === 'urgency' ? 'progress' : 'urgency'
-  handleSearch()
+  pagination.page = 1
+  fetchTasks()
 }
 
 const handleSizeChange = (val: number) => {
@@ -809,6 +889,7 @@ const showCreateDialog = () => {
   resetForm()
   if (searchForm.projectId) {
     form.projectId = Number(searchForm.projectId)
+    fetchProjectMembers(form.projectId)
   }
   dialogVisible.value = true
 }
@@ -820,7 +901,7 @@ const isCurrentUserAssignee = (row: any) => {
 
 const canOperateTask = (row: any) => {
   if (!row) return false
-  if (currentUser.value?.roleName === '管理员') return true
+  if (hasPermission('task.edit_all')) return true
   if (currentUser.value?.id && row.projectManagerId && Number(row.projectManagerId) === Number(currentUser.value.id)) return true
   return isCurrentUserAssignee(row)
 }
@@ -829,6 +910,13 @@ const canClaimTask = (row: any) => {
   if (!row || !currentUser.value?.id) return false
   if (row.status === 2 || row.status === 3) return false
   return !isCurrentUserAssignee(row)
+}
+
+const canModifyDueDate = (row: any) => {
+  if (!row) return false
+  if (hasPermission('task.modify_due_date')) return true
+  if (currentUser.value?.id && row.projectManagerId && Number(row.projectManagerId) === Number(currentUser.value.id)) return true
+  return false
 }
 
 const resetForm = () => {
@@ -861,6 +949,7 @@ const handleSubmit = async () => {
         if (isEdit.value && editId.value) {
           const payload: any = {}
           const origin = originalEditForm.value
+          const editingTask = tasks.value.find((t: any) => Number(t.id) === Number(editId.value))
 
           if (!origin || origin.title !== form.title) payload.title = form.title
           if (!origin || origin.description !== form.description) payload.description = form.description
@@ -869,7 +958,11 @@ const handleSubmit = async () => {
             payload.assigneeId = form.assigneeIds.length ? form.assigneeIds[0] : null
           }
           if (!origin || origin.startDate !== form.startDate) payload.startDate = form.startDate || null
-          if (!origin || origin.dueDate !== form.dueDate) payload.dueDate = form.dueDate || null
+          if (!origin || origin.dueDate !== form.dueDate) {
+            if (canModifyDueDate(editingTask)) {
+              payload.dueDate = form.dueDate || null
+            }
+          }
 
           if (Object.keys(payload).length === 0) {
             ElMessage.warning('未检测到修改内容')
@@ -1077,7 +1170,19 @@ const handleSelectionChange = (rows: any[]) => {
   selectedTask.value = last
 }
 
-const handleRowClick = (row: any) => {
+const handleRowClick = (row: any, _column: any, event: MouseEvent) => {
+  const target = event.target as HTMLElement | null
+  if (target?.closest('.el-checkbox') || target?.closest('.el-link') || target?.closest('.el-button')
+    || target?.closest('.el-select') || target?.closest('.el-input')) {
+    return
+  }
+
+  if (selectedTask.value?.id === row.id) {
+    taskTableRef.value?.clearSelection()
+    selectedTask.value = null
+    return
+  }
+
   taskTableRef.value?.clearSelection()
   taskTableRef.value?.toggleRowSelection(row, true)
   selectedTask.value = row
@@ -1114,8 +1219,8 @@ const openDueDateDialog = () => {
     return
   }
 
-  if (!canOperateTask(selectedTask.value)) {
-    ElMessage.warning('项目成员仅可修改自己负责的任务')
+  if (!canModifyDueDate(selectedTask.value)) {
+    ElMessage.warning('仅管理员和项目负责人可以修改预计截止时间')
     return
   }
 
@@ -1131,8 +1236,8 @@ const submitSelectedTaskDueDate = async () => {
     return
   }
 
-  if (!claimDueDateRequired.value && !canOperateTask(selectedTask.value)) {
-    ElMessage.warning('项目成员仅可修改自己负责的任务')
+  if (!claimDueDateRequired.value && !canModifyDueDate(selectedTask.value)) {
+    ElMessage.warning('仅管理员和项目负责人可以修改预计截止时间')
     return
   }
 
@@ -1378,10 +1483,25 @@ onMounted(async () => {
     pendingFocusTaskId.value = queryFocusTaskId
   }
 
-  await fetchProjects()
-  if (!searchForm.projectId && projects.value.length > 0) {
-    searchForm.projectId = projects.value[0].id
+  await Promise.all([fetchProjects(), fetchBusinessLines()])
+  treeReady.value = true
+
+  await nextTick()
+
+  if (searchForm.projectId) {
+    const treeData = filteredProjectTreeData.value
+    for (const blGroup of treeData) {
+      if (blGroup.children?.some((c: any) => c.id === searchForm.projectId)) {
+        const blNode = projectTreeRef.value?.getNode(blGroup.id)
+        if (blNode && !blNode.expanded) {
+          blNode.expand()
+        }
+        break
+      }
+    }
+    projectTreeRef.value?.setCurrentKey(searchForm.projectId)
   }
+
   const replaced = syncListRouteQuery({ focusTaskId: pendingFocusTaskId.value })
   if (!replaced) {
     await fetchTasks()
@@ -1450,6 +1570,18 @@ onMounted(async () => {
   min-height: 0;
   background: #f7fbff;
   box-shadow: 0 8px 20px rgba(22, 58, 123, 0.08);
+  position: relative;
+}
+
+.tree-loading-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #909399;
+  font-size: 13px;
 }
 
 .panel-title {
@@ -1501,6 +1633,27 @@ onMounted(async () => {
   padding-right: 6px;
 }
 
+.business-line-node {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.business-line-expand-icon {
+  font-size: 10px;
+  color: #909399;
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.business-line-node .project-tree-name {
+  font-weight: 600;
+  color: #303133;
+  font-size: 13px;
+}
+
 .project-tree-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1543,23 +1696,54 @@ onMounted(async () => {
   color: #516884;
 }
 
-.project-tree-badge.planning {
-  color: var(--el-text-color-secondary);
+.project-tree-badge.presale {
+  color: #78716c;
+  background: #f5f5f4;
 }
 
-.project-tree-badge.active {
-  color: #245cbc;
-  background: #e6efff;
+.project-tree-badge.bid {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.project-tree-badge.requirement {
+  color: #6d28d9;
+  background: #ede9fe;
+}
+
+.project-tree-badge.design {
+  color: #7c3aed;
+  background: #f3e8ff;
+}
+
+.project-tree-badge.procurement {
+  color: #b45309;
+  background: #fef3c7;
+}
+
+.project-tree-badge.assembly {
+  color: #c2410c;
+  background: #ffedd5;
+}
+
+.project-tree-badge.testing {
+  color: #be185d;
+  background: #fce7f3;
+}
+
+.project-tree-badge.shipped {
+  color: #b7791f;
+  background: #fefce8;
+}
+
+.project-tree-badge.commissioning {
+  color: #0e7490;
+  background: #ecfeff;
 }
 
 .project-tree-badge.done {
-  color: #137657;
-  background: #e8f8f2;
-}
-
-.project-tree-badge.paused {
-  color: #7f5800;
-  background: #fff4da;
+  color: #15803d;
+  background: #dcfce7;
 }
 
 .project-tree-badge.danger {

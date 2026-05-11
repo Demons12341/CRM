@@ -55,6 +55,7 @@ namespace ProjectManagementSystem.Models.DTOs
         public int ProjectId { get; set; }
         public int ProjectManagerId { get; set; }
         public string ProjectName { get; set; } = string.Empty;
+        public string? BusinessLine { get; set; }
         public string Title { get; set; } = string.Empty;
         public string? Description { get; set; }
         public int? AssigneeId { get; set; }
@@ -75,6 +76,7 @@ namespace ProjectManagementSystem.Models.DTOs
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public bool IsOverdue { get; set; }
+        public int? DaysLeft { get; set; }
     }
 
     public class TaskListRequest

@@ -16,7 +16,7 @@
           }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="状态">
-          <el-tag :type="getStatusType(project.status)">{{ project.statusName }}</el-tag>
+          <el-tag :style="getStatusStyle(project.status)">{{ project.statusName }}</el-tag>
           <el-tag class="status-extra-tag" :type="projectOverallTagType">{{ projectOverallTagText }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="整体拖期">
@@ -99,7 +99,7 @@
     <div class="section-header">
       <span class="section-title">项目成员</span>
       <div class="section-line"></div>
-      <el-button v-if="canManageMembers" type="primary" @click="openMemberDialog">添加项目成员</el-button>
+      <el-button v-if="canManageMembers" v-permission="'projects.members'" type="primary" @click="openMemberDialog">添加项目成员</el-button>
     </div>
       <el-table v-if="sortedMembers.length" :data="sortedMembers" style="width: 100%">
         <el-table-column prop="username" label="用户名" width="180" />
@@ -109,6 +109,19 @@
         <el-table-column prop="role" label="项目角色" width="120" />
         <el-table-column prop="joinedAt" label="加入时间" width="180">
           <template #default="{ row }">{{ formatDateTime(row.joinedAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="160" v-if="canManageMembers">
+          <template #default="{ row }">
+            <template v-if="row.userId !== project?.managerId">
+              <el-button link type="primary" size="small" @click="openRoleDialog(row)">编辑</el-button>
+              <el-popconfirm title="确定要移除该成员吗？" @confirm="removeMember(row.userId)">
+                <template #reference>
+                  <el-button link type="danger" size="small">移除</el-button>
+                </template>
+              </el-popconfirm>
+            </template>
+            <span v-else style="color: #999; font-size: 12px;">负责人</span>
+          </template>
         </el-table-column>
       </el-table>
       <el-empty v-else description="暂无项目成员" />
@@ -134,6 +147,21 @@
           <el-button type="primary" :loading="addingMember" @click="submitAddMember">确定</el-button>
         </template>
       </el-dialog>
+
+      <el-dialog v-model="roleDialogVisible" title="修改项目角色" width="400px">
+        <el-form label-width="80px">
+          <el-form-item label="成员">
+            <span>{{ roleDialogMemberName }}</span>
+          </el-form-item>
+          <el-form-item label="项目角色">
+            <el-input v-model="roleFormValue" maxlength="50" placeholder="请输入角色，如：成员" />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="roleDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="savingRole" @click="submitRoleChange">确定</el-button>
+        </template>
+      </el-dialog>
     </el-card>
   </div>
 </template>
@@ -144,6 +172,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { request } from '@/api/request'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
+import { hasPermission } from '@/directives/permission'
 
 const route = useRoute()
 const router = useRouter()
@@ -166,6 +195,11 @@ const memberRules = {
   userId: [{ required: true, message: '请选择成员', trigger: 'change' }],
   role: [{ required: true, message: '请输入项目角色', trigger: 'blur' }]
 }
+const roleDialogVisible = ref(false)
+const savingRole = ref(false)
+const roleDialogUserId = ref<number>(0)
+const roleDialogMemberName = ref('')
+const roleFormValue = ref('')
 
 const currentUser = computed(() => {
   try {
@@ -178,7 +212,7 @@ const currentUser = computed(() => {
 
 const canManageMembers = computed(() => {
   if (!project.value || !currentUser.value) return false
-  if (currentUser.value.roleName === '管理员') return true
+  if (hasPermission('project.manage_members_all')) return true
   return Number(project.value.managerId) === Number(currentUser.value.id)
 })
 
@@ -235,7 +269,7 @@ const showNowLine = computed(() => !!timelineStart.value && !!timelineEnd.value)
 
 const isProjectOverallDelayed = computed(() => {
   if (!project.value?.endDate) return false
-  if (project.value.status === 2 || project.value.status === 3) return false
+  if (project.value.status === 10) return false
   return dayjs().isAfter(dayjs(project.value.endDate).endOf('day'))
 })
 
@@ -421,6 +455,53 @@ const submitAddMember = async () => {
   })
 }
 
+const removeMember = async (userId: number) => {
+  if (!canManageMembers.value) {
+    ElMessage.warning('暂无项目成员管理权限')
+    return
+  }
+  try {
+    await request.delete(`/projects/${projectId.value}/members/${userId}`)
+    ElMessage.success('移除成员成功')
+    await fetchMembers()
+  } catch (error) {
+    const status = (error as any)?.response?.status
+    if (status === 403) {
+      ElMessage.warning('暂无项目成员管理权限')
+    } else {
+      ElMessage.error('移除成员失败')
+    }
+    console.error('移除项目成员失败：', error)
+  }
+}
+
+const openRoleDialog = (row: any) => {
+  roleDialogUserId.value = row.userId
+  roleDialogMemberName.value = row.username || '-'
+  roleFormValue.value = row.role || ''
+  roleDialogVisible.value = true
+}
+
+const submitRoleChange = async () => {
+  const newRole = roleFormValue.value.trim()
+  if (!newRole) {
+    ElMessage.warning('请输入角色名称')
+    return
+  }
+  savingRole.value = true
+  try {
+    await request.put(`/projects/${projectId.value}/members/${roleDialogUserId.value}/role`, { role: newRole })
+    ElMessage.success('更新角色成功')
+    roleDialogVisible.value = false
+    await fetchMembers()
+  } catch (error) {
+    console.error('更新角色失败：', error)
+    ElMessage.error('更新角色失败')
+  } finally {
+    savingRole.value = false
+  }
+}
+
 const fetchProjectTasks = async () => {
   try {
     const allTasks: any[] = []
@@ -460,14 +541,20 @@ const fetchProjectTasks = async () => {
   }
 }
 
-const getStatusType = (status: number) => {
-  const types: Record<number, string> = {
-    0: 'info',
-    1: 'primary',
-    2: 'success',
-    3: 'warning'
+const getStatusStyle = (status: number) => {
+  const styles: Record<number, { color: string; background: string; border: string }> = {
+    0: { color: '#78716c', background: '#f5f5f4', border: '1px solid #e7e5e4' },
+    2: { color: '#1d4ed8', background: '#dbeafe', border: '1px solid #bfdbfe' },
+    3: { color: '#6d28d9', background: '#ede9fe', border: '1px solid #ddd6fe' },
+    4: { color: '#7c3aed', background: '#f3e8ff', border: '1px solid #e9d5ff' },
+    5: { color: '#b45309', background: '#fef3c7', border: '1px solid #fde68a' },
+    6: { color: '#c2410c', background: '#ffedd5', border: '1px solid #fed7aa' },
+    7: { color: '#be185d', background: '#fce7f3', border: '1px solid #fbcfe8' },
+    8: { color: '#b7791f', background: '#fefce8', border: '1px solid #fef9c3' },
+    9: { color: '#0e7490', background: '#ecfeff', border: '1px solid #cffafe' },
+    10: { color: '#15803d', background: '#dcfce7', border: '1px solid #bbf7d0' }
   }
-  return types[status] || 'info'
+  return styles[status] ?? styles[0]
 }
 
 const getPriorityType = (priority: number) => {
@@ -512,7 +599,7 @@ const getTaskStatusName = (status: number) => {
 
 const isProjectOverallOverdue = (projectItem: any) => {
   if (!projectItem?.endDate) return false
-  if (projectItem.status === 2 || projectItem.status === 3) return false
+  if (projectItem.status === 10) return false
   return dayjs(projectItem.endDate).endOf('day').isBefore(dayjs())
 }
 

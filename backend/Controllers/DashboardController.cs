@@ -41,6 +41,18 @@ namespace ProjectManagementSystem.Controllers
             });
         }
 
+        [HttpGet("my-projects")]
+        public async Task<ActionResult<ApiResponse<List<MyProjectDto>>>> GetMyProjects()
+        {
+            var userId = GetCurrentUserId();
+            var data = await _dashboardService.GetMyProjectsAsync(userId);
+            return Ok(new ApiResponse<List<MyProjectDto>>
+            {
+                Success = true,
+                Data = data
+            });
+        }
+
         private int GetCurrentUserId()
         {
             return int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");

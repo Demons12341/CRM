@@ -266,6 +266,40 @@ namespace ProjectManagementSystem.Controllers
             }
         }
 
+        [HttpPut("{projectId}/members/{userId}/role")]
+        public async Task<ActionResult<ApiResponse<ProjectMemberDto>>> UpdateMemberRole(int projectId, int userId, [FromBody] UpdateMemberRoleRequest request)
+        {
+            try
+            {
+                var currentUserId = GetCurrentUserId();
+                var canManage = await _projectService.CanUserManageProjectMembersAsync(projectId, currentUserId);
+                if (!canManage)
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, new ApiResponse<object>
+                    {
+                        Success = false,
+                        Message = "暂无项目成员管理权限"
+                    });
+                }
+
+                var data = await _projectService.UpdateMemberRoleAsync(projectId, userId, request);
+                return Ok(new ApiResponse<ProjectMemberDto>
+                {
+                    Success = true,
+                    Data = data,
+                    Message = "更新角色成功"
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = ex.Message
+                });
+            }
+        }
+
         private int GetCurrentUserId()
         {
             return int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");

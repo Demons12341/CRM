@@ -44,18 +44,25 @@
         </div>
       </div>
 
-      <div class="stat-card" :class="{ 'has-alert': stats.overdueTasks > 0 }" @click="viewOverdueTasks">
+      <div class="stat-card" :class="{ 'has-alert': totalAlertCount > 0 }" @click="router.push('/alerts')">
         <div class="stat-icon icon-danger">
           <el-icon>
             <Warning />
           </el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">{{ stats.overdueTasks }}</div>
-          <div class="stat-label">超期任务</div>
+          <div class="stat-value">{{ totalAlertCount }}</div>
+          <div class="stat-label">超期告警</div>
         </div>
-        <span v-if="stats.overdueTasks > 0" class="alert-badge">{{ stats.overdueTasks }}</span>
+        <span v-if="totalAlertCount > 0" class="alert-badge">{{ totalAlertCount }}</span>
       </div>
+    </div>
+
+    <!-- 新模块：待签合同 / 项目进展 / 即将超期 -->
+    <div class="highlights-grid">
+      <PendingContractCard :items="pendingContractProjects" @select="handleSelectProject" />
+      <ProgressProjectList :items="progressProjects" @select="handleSelectProject" />
+      <UpcomingOverdueCard :items="upcomingOverdueItems" />
     </div>
 
     <!-- 图表区域 -->
@@ -72,17 +79,7 @@
         <div ref="projectChartRef" class="chart-container"></div>
       </div>
 
-      <div class="chart-card">
-        <div class="card-header">
-          <h3 class="card-title">
-            <el-icon>
-              <Histogram />
-            </el-icon>
-            任务状态统计
-          </h3>
-        </div>
-        <div ref="taskChartRef" class="chart-container"></div>
-      </div>
+      <MyProjectList :items="myProjects" @select="handleSelectProject" />
     </div>
 
     <!-- 任务和告警 -->
@@ -97,23 +94,21 @@
             我的任务
             <span class="task-count">{{ myTasks.length }}</span>
           </h3>
-          <el-button type="primary" text @click="viewMyTaskScopeAll">
-            查看全部
-            <el-icon class="el-icon--right">
-              <ArrowRight />
-            </el-icon>
-          </el-button>
         </div>
 
         <div class="card-body">
           <div v-if="myTasks.length > 0" class="task-list">
-            <div v-for="task in myTasks.slice(0, 5)" :key="task.id" class="task-item" @click="viewTask(task.id)">
+            <div v-for="task in myTasks.slice(0, 5)" :key="task.id" class="task-item" @click="viewTask(task)">
               <div class="task-priority" :class="getPriorityClass(task.priority)"></div>
               <div class="task-content">
                 <div class="task-title">{{ task.title }}</div>
                 <div class="task-meta">
                   <span class="task-project">{{ task.projectName || '未分配项目' }}</span>
-                  <span class="task-date" :class="{ 'overdue': task.isOverdue }">{{ formatDate(task.dueDate) }}</span>
+                  <span class="task-date" :class="{ 'overdue': task.isOverdue, 'due-soon': !task.isOverdue && task.daysLeft !== null && task.daysLeft !== undefined && task.daysLeft <= 3 }">
+                    <template v-if="task.isOverdue">已超期{{ Math.abs(task.daysLeft) }}天</template>
+                    <template v-else-if="task.daysLeft !== null && task.daysLeft !== undefined">剩余{{ task.daysLeft }}天</template>
+                    <template v-else>{{ formatDate(task.dueDate) }}</template>
+                  </span>
                 </div>
               </div>
               <el-tag :type="getPriorityType(task.priority)" size="small">
@@ -170,6 +165,10 @@ import { useRouter } from 'vue-router'
 import { request } from '@/api/request'
 import dayjs from 'dayjs'
 import * as echarts from 'echarts'
+import PendingContractCard from '@/components/dashboard/PendingContractCard.vue'
+import ProgressProjectList from '@/components/dashboard/ProgressProjectList.vue'
+import UpcomingOverdueCard from '@/components/dashboard/UpcomingOverdueCard.vue'
+import MyProjectList from '@/components/dashboard/MyProjectList.vue'
 
 const router = useRouter()
 
@@ -177,7 +176,6 @@ interface DashboardStats {
   totalProjects: number
   activeProjects: number
   totalTasks: number
-  overdueTasks: number
   projectStatusCounts: Record<string, number>
   taskStatusCounts: Record<string, number>
 }
@@ -186,36 +184,43 @@ const stats = ref<DashboardStats>({
   totalProjects: 0,
   activeProjects: 0,
   totalTasks: 0,
-  overdueTasks: 0,
   projectStatusCounts: {},
   taskStatusCounts: {}
 })
 
 const myTasks = ref<any[]>([])
 const recentAlerts = ref<any[]>([])
+const totalAlertCount = ref(0)
+const pendingContractProjects = ref<any[]>([])
+const progressProjects = ref<any[]>([])
+const upcomingOverdueItems = ref<any[]>([])
+const myProjects = ref<any[]>([])
 const projectChartRef = ref<HTMLElement>()
-const taskChartRef = ref<HTMLElement>()
 const projectChart = ref<echarts.ECharts | null>(null)
-const taskChart = ref<echarts.ECharts | null>(null)
 
 const fetchDashboardData = async () => {
   try {
-    const [statsRes, tasksRes, alertsRes] = await Promise.all([
+    const [statsRes, tasksRes, alertsRes, myProjectsRes] = await Promise.all([
       request.get('/dashboard/overview'),
       request.get('/dashboard/my-tasks'),
-      request.get('/alerts?pageSize=6&alertStatus=0')
+      request.get('/alerts?pageSize=6&alertStatus=0'),
+      request.get('/dashboard/my-projects')
     ])
 
     stats.value = {
       totalProjects: statsRes.data?.totalProjects ?? 0,
       activeProjects: statsRes.data?.activeProjects ?? 0,
       totalTasks: statsRes.data?.totalTasks ?? 0,
-      overdueTasks: statsRes.data?.overdueTasks ?? 0,
       projectStatusCounts: statsRes.data?.projectStatusCounts ?? {},
       taskStatusCounts: statsRes.data?.taskStatusCounts ?? {}
     }
+    pendingContractProjects.value = statsRes.data?.pendingContractProjects ?? []
+    progressProjects.value = statsRes.data?.progressProjects ?? []
+    upcomingOverdueItems.value = statsRes.data?.upcomingOverdueItems ?? []
+    myProjects.value = myProjectsRes.data || []
     myTasks.value = tasksRes.data || []
     recentAlerts.value = alertsRes.data.items || []
+    totalAlertCount.value = alertsRes.data.totalCount ?? alertsRes.data.items?.length ?? 0
 
     await nextTick()
     initCharts()
@@ -277,82 +282,30 @@ const initCharts = () => {
             show: false
           },
           data: [
-            { value: getStatusCount(stats.value.projectStatusCounts, 0), name: '规划中', itemStyle: { color: '#94a3b8' } },
-            { value: getStatusCount(stats.value.projectStatusCounts, 1), name: '进行中', itemStyle: { color: '#3b82f6' } },
-            { value: getStatusCount(stats.value.projectStatusCounts, 2), name: '已完成', itemStyle: { color: '#22c55e' } },
-            { value: getStatusCount(stats.value.projectStatusCounts, 3), name: '已暂停', itemStyle: { color: '#f59e0b' } }
+            { value: getStatusCount(stats.value.projectStatusCounts, 0), name: '售前阶段', itemStyle: { color: '#78716c' } },
+            { value: getStatusCount(stats.value.projectStatusCounts, 2), name: '已中标，待签合同', itemStyle: { color: '#3b82f6' } },
+            { value: getStatusCount(stats.value.projectStatusCounts, 3), name: '需求确定阶段', itemStyle: { color: '#6366f1' } },
+            { value: getStatusCount(stats.value.projectStatusCounts, 4), name: '设计阶段', itemStyle: { color: '#8b5cf6' } },
+            { value: getStatusCount(stats.value.projectStatusCounts, 5), name: '采购生产阶段', itemStyle: { color: '#f59e0b' } },
+            { value: getStatusCount(stats.value.projectStatusCounts, 6), name: '装配阶段', itemStyle: { color: '#ea580c' } },
+            { value: getStatusCount(stats.value.projectStatusCounts, 7), name: '测试阶段', itemStyle: { color: '#ec4899' } },
+            { value: getStatusCount(stats.value.projectStatusCounts, 8), name: '已发货', itemStyle: { color: '#eab308' } },
+            { value: getStatusCount(stats.value.projectStatusCounts, 9), name: '现场调试', itemStyle: { color: '#06b6d4' } },
+            { value: getStatusCount(stats.value.projectStatusCounts, 10), name: '已完成', itemStyle: { color: '#22c55e' } }
           ]
         }
       ]
     }
     projectChart.value.setOption(projectOption, true)
   }
-
-  // 任务状态统计柱状图
-  if (taskChartRef.value) {
-    if (!taskChart.value) {
-      taskChart.value = echarts.init(taskChartRef.value)
-    }
-
-    const taskOption = {
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' }
-      },
-      grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '3%',
-        top: '10%',
-        containLabel: true
-      },
-      xAxis: [
-        {
-          type: 'category',
-          data: ['待办', '进行中', '已完成', '已取消'],
-          axisTick: { alignWithLabel: true },
-          axisLine: { lineStyle: { color: '#e5e7eb' } },
-          axisLabel: { color: '#666' }
-        }
-      ],
-      yAxis: [
-        {
-          type: 'value',
-          axisLine: { show: false },
-          axisTick: { show: false },
-          splitLine: { lineStyle: { color: '#f3f4f6' } },
-          axisLabel: { color: '#666' }
-        }
-      ],
-      series: [
-        {
-          name: '任务数',
-          type: 'bar',
-          barWidth: '36%',
-          data: [
-            { value: getStatusCount(stats.value.taskStatusCounts, 0), itemStyle: { color: '#94a3b8' } },
-            { value: getStatusCount(stats.value.taskStatusCounts, 1), itemStyle: { color: '#3b82f6' } },
-            { value: getStatusCount(stats.value.taskStatusCounts, 2), itemStyle: { color: '#22c55e' } },
-            { value: getStatusCount(stats.value.taskStatusCounts, 3), itemStyle: { color: '#ef4444' } }
-          ],
-          itemStyle: { borderRadius: [4, 4, 0, 0] }
-        }
-      ]
-    }
-    taskChart.value.setOption(taskOption, true)
-  }
 }
 
-const viewOverdueTasks = () => {
-  router.push({ path: '/tasks', query: { overdueOnly: 'true' } })
+const viewTask = (task: any) => {
+  router.push(`/tasks/${task.id}`)
 }
 
-const viewMyTaskScopeAll = () => {
-  router.push({ path: '/tasks', query: { myOpenScope: 'true' } })
-}
-
-const viewTask = (id: number) => {
-  router.push(`/tasks/${id}`)
+const handleSelectProject = (project: any) => {
+  router.push({ path: '/projects', query: { focusProjectId: String(project.id), businessLine: project.businessLine || '' } })
 }
 
 const getPriorityClass = (priority: number) => {
@@ -433,7 +386,6 @@ onMounted(() => {
   fetchDashboardData()
   window.addEventListener('resize', () => {
     projectChart.value?.resize()
-    taskChart.value?.resize()
   })
 })
 </script>
@@ -593,6 +545,20 @@ onMounted(() => {
   grid-template-columns: repeat(2, 1fr);
   gap: 12px;
   margin-bottom: 14px;
+}
+
+/* 高亮模块区域 */
+.highlights-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 1200px) {
+  .highlights-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {
@@ -761,6 +727,10 @@ onMounted(() => {
 
 .task-date.overdue {
   color: #ef4444;
+}
+
+.task-date.due-soon {
+  color: #f59e0b;
 }
 
 /* 告警列表 */

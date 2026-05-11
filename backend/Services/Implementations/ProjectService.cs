@@ -12,11 +12,13 @@ namespace ProjectManagementSystem.Services.Implementations
         private const string SharedFolderProjectName = "共享文件夹";
         private readonly ApplicationDbContext _context;
         private readonly IProcessTemplateService _processTemplateService;
+        private readonly IPermissionService _permissionService;
 
-        public ProjectService(ApplicationDbContext context, IProcessTemplateService processTemplateService)
+        public ProjectService(ApplicationDbContext context, IProcessTemplateService processTemplateService, IPermissionService permissionService)
         {
             _context = context;
             _processTemplateService = processTemplateService;
+            _permissionService = permissionService;
         }
 
         public async Task<PaginatedResult<ProjectDto>> GetProjectsAsync(ProjectListRequest request)
@@ -47,13 +49,18 @@ namespace ProjectManagementSystem.Services.Implementations
                 query = query.Where(p => p.Name != SharedFolderProjectName);
             }
 
+            if (!string.IsNullOrWhiteSpace(request.BusinessLine))
+            {
+                query = query.Where(p => p.BusinessLine == request.BusinessLine);
+            }
+
             var totalCount = await query.CountAsync();
             var totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize);
 
             var today = AppTime.Today;
 
             var projects = await query
-                .OrderBy(p => p.Status == 2 ? 1 : 0)
+                .OrderBy(p => p.Status == 10 ? 1 : 0)
                 .ThenByDescending(p => p.Priority)
                 .ThenBy(p => p.EndDate.HasValue ? (p.EndDate.Value.Date < today ? 0 : 1) : 2)
                 .ThenBy(p => p.EndDate)
@@ -73,6 +80,7 @@ namespace ProjectManagementSystem.Services.Implementations
                     StatusName = GetStatusName(p.Status),
                     Priority = p.Priority,
                     PriorityName = GetPriorityName(p.Priority),
+                    BusinessLine = p.BusinessLine,
                     Budget = p.Budget,
                     CreatedAt = p.CreatedAt,
                     UpdatedAt = p.UpdatedAt,
@@ -121,6 +129,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 StatusName = GetStatusName(project.Status),
                 Priority = project.Priority,
                 PriorityName = GetPriorityName(project.Priority),
+                BusinessLine = project.BusinessLine,
                 Budget = project.Budget,
                 CreatedAt = project.CreatedAt,
                 UpdatedAt = project.UpdatedAt,
@@ -145,7 +154,7 @@ namespace ProjectManagementSystem.Services.Implementations
             await EnsureProjectManagerRoleAsync(request.ManagerId);
             ValidateDateRange(request.StartDate, request.EndDate, "项目开始时间", "项目结束时间");
 
-            var initialStatus = request.StartDate.Value.Date <= DateTime.Today ? 1 : 0;
+            var initialStatus = 0;
 
             var project = new Project
             {
@@ -155,6 +164,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 StartDate = request.StartDate,
                 EndDate = request.EndDate,
                 Priority = request.Priority,
+                BusinessLine = request.BusinessLine,
                 Budget = request.Budget,
                 Status = initialStatus,
                 CreatedAt = DateTime.UtcNow,
@@ -270,7 +280,7 @@ namespace ProjectManagementSystem.Services.Implementations
 
             if (request.Status.HasValue)
             {
-                if (request.Status.Value == 2)
+                if (request.Status.Value == 10)
                 {
                     var hasIncompleteTasks = await _context.Tasks
                         .AnyAsync(t => t.ProjectId == id && t.Status != 2);
@@ -279,6 +289,11 @@ namespace ProjectManagementSystem.Services.Implementations
                     {
                         throw new InvalidOperationException("项目下仍有未完成任务，不能标记为已完成");
                     }
+                }
+
+                if (request.Status.Value != project.Status)
+                {
+                    project.StatusChangedAt = DateTime.UtcNow;
                 }
 
                 project.Status = request.Status.Value;
@@ -302,6 +317,11 @@ namespace ProjectManagementSystem.Services.Implementations
             if (request.Budget.HasValue)
             {
                 project.Budget = request.Budget.Value;
+            }
+
+            if (request.BusinessLine != null)
+            {
+                project.BusinessLine = request.BusinessLine;
             }
 
             if (request.MemberIds != null || request.ManagerId.HasValue)
@@ -347,9 +367,9 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new UnauthorizedAccessException("用户不存在或已禁用");
             }
 
-            if (currentUser.Role.Name != "管理员")
+            if (currentUser.Role.Name != "管理员" && !_permissionService.HasPermission(currentUser, "projects.delete"))
             {
-                throw new UnauthorizedAccessException("只有管理员可以删除项目");
+                throw new UnauthorizedAccessException("没有删除项目的权限");
             }
 
             var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == id);
@@ -493,7 +513,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 return false;
             }
 
-            if (currentUser.Role.Name == "管理员")
+            if (_permissionService.HasPermission(currentUser, "project.view_all"))
             {
                 return await _context.Projects.AnyAsync(p => p.Id == projectId);
             }
@@ -524,7 +544,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 return false;
             }
 
-            if (currentUser.Role.Name == "管理员")
+            if (_permissionService.HasPermission(currentUser, "project.edit_all"))
             {
                 return await _context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId);
             }
@@ -546,7 +566,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 return false;
             }
 
-            if (currentUser.Role.Name == "管理员")
+            if (_permissionService.HasPermission(currentUser, "project.manage_members_all"))
             {
                 return await _context.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId);
             }
@@ -586,9 +606,22 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new KeyNotFoundException("用户不存在");
             }
 
-            if (await _context.ProjectMembers.AnyAsync(pm => pm.ProjectId == projectId && pm.UserId == request.UserId))
+            var existingMember = await _context.ProjectMembers
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(pm => pm.ProjectId == projectId && pm.UserId == request.UserId);
+
+            if (existingMember != null)
             {
-                throw new InvalidOperationException("用户已是项目成员");
+                if (!existingMember.IsDeleted)
+                {
+                    throw new InvalidOperationException("用户已是项目成员");
+                }
+
+                existingMember.IsDeleted = false;
+                existingMember.Role = request.Role;
+                existingMember.JoinedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+                return (await GetProjectMembersAsync(projectId)).First(pm => pm.UserId == request.UserId);
             }
 
             var projectMember = new ProjectMember
@@ -621,6 +654,22 @@ namespace ProjectManagementSystem.Services.Implementations
             return true;
         }
 
+        public async Task<ProjectMemberDto> UpdateMemberRoleAsync(int projectId, int userId, UpdateMemberRoleRequest request)
+        {
+            var projectMember = await _context.ProjectMembers
+                .FirstOrDefaultAsync(pm => pm.ProjectId == projectId && pm.UserId == userId);
+
+            if (projectMember == null)
+            {
+                throw new KeyNotFoundException("项目成员不存在");
+            }
+
+            projectMember.Role = request.Role;
+            await _context.SaveChangesAsync();
+
+            return (await GetProjectMembersAsync(projectId)).First(pm => pm.UserId == userId);
+        }
+
         private async System.Threading.Tasks.Task EnsureProjectManagerRoleAsync(int userId)
         {
             var user = await _context.Users
@@ -640,10 +689,16 @@ namespace ProjectManagementSystem.Services.Implementations
         {
             return status switch
             {
-                0 => "规划中",
-                1 => "进行中",
-                2 => "已完成",
-                3 => "已暂停",
+                0 => "售前阶段",
+                2 => "已中标，待签合同",
+                3 => "需求确定阶段",
+                4 => "设计阶段",
+                5 => "采购生产阶段",
+                6 => "装配阶段",
+                7 => "测试阶段",
+                8 => "已发货",
+                9 => "现场调试",
+                10 => "已完成",
                 _ => "未知"
             };
         }

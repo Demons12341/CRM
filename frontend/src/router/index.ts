@@ -64,6 +64,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '项目任务模板', icon: 'Operation', permission: 'processes' }
       },
       {
+        path: 'business-lines',
+        name: 'BusinessLines',
+        component: () => import('@/views/setting/business-lines.vue'),
+        meta: { title: '业务线管理', icon: 'Connection', permission: 'business-lines' }
+      },
+      {
         path: 'settings',
         name: 'Settings',
         redirect: '/settings/users',
@@ -85,7 +91,7 @@ const routes: RouteRecordRaw[] = [
             path: 'menus',
             name: 'MenuPermissions',
             component: () => import('@/views/setting/menus.vue'),
-            meta: { title: '菜单权限', permission: 'settings.menu' }
+            meta: { title: '权限管理', permission: 'settings.menu' }
           },
           {
             path: 'processes',
@@ -123,7 +129,7 @@ router.beforeEach((to, _from, next) => {
   const permission = to.meta?.permission as string | undefined
   const hasPermission = !permission
     || user?.roleName === '管理员'
-    || (Array.isArray(user?.permissions) && user.permissions.includes(permission))
+    || (Array.isArray(user?.permissions) && (user.permissions.includes('*') || user.permissions.includes(permission) || user.permissions.some((p: string) => p.startsWith(`${permission}.`))))
   
   if (to.meta.requiresAuth !== false && !token) {
     next('/login')

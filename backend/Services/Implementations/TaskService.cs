@@ -16,12 +16,14 @@ namespace ProjectManagementSystem.Services.Implementations
         private readonly ApplicationDbContext _context;
         private readonly IWebHostEnvironment _environment;
         private readonly IProcessTemplateService _processTemplateService;
+        private readonly IPermissionService _permissionService;
 
-        public TaskService(ApplicationDbContext context, IWebHostEnvironment environment, IProcessTemplateService processTemplateService)
+        public TaskService(ApplicationDbContext context, IWebHostEnvironment environment, IProcessTemplateService processTemplateService, IPermissionService permissionService)
         {
             _context = context;
             _environment = environment;
             _processTemplateService = processTemplateService;
+            _permissionService = permissionService;
         }
 
         public async Task<PaginatedResult<TaskDto>> GetTasksAsync(TaskListRequest request, int currentUserId)
@@ -46,7 +48,7 @@ namespace ProjectManagementSystem.Services.Implementations
 
             var overdueOnly = request.OverdueOnly == true;
 
-            if (currentUser.Role.Name != "管理员")
+            if (!_permissionService.HasPermission(currentUser, "task.view_all"))
             {
                 query = query.Where(t =>
                     t.Project.ManagerId == currentUserId ||
@@ -60,7 +62,7 @@ namespace ProjectManagementSystem.Services.Implementations
 
             if (request.ProjectId.HasValue)
             {
-                if (currentUser.Role.Name != "管理员")
+                if (!_permissionService.HasPermission(currentUser, "task.view_all"))
                 {
                     var hasProjectAccess = await _context.Projects
                         .AsNoTracking()
@@ -282,7 +284,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new KeyNotFoundException("项目不存在");
             }
 
-            if (currentUser.Role.Name != "管理员" && project.ManagerId != userId)
+            if (!_permissionService.HasPermission(currentUser, "project.view_all") && project.ManagerId != userId)
             {
                 var isProjectMember = await _context.ProjectMembers
                     .AsNoTracking()
@@ -363,7 +365,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 || request.StartDate.HasValue
                 || request.DueDate.HasValue
                 || request.Progress.HasValue;
-            var isAdmin = currentUser.Role.Name == "管理员";
+            var isAdmin = _permissionService.HasPermission(currentUser, "task.edit_all");
             var isProjectManagerOfTask = task.Project.ManagerId == userId;
             var isTaskAssignee = task.AssigneeId.HasValue && task.AssigneeId.Value == userId;
             var canEditTask = isAdmin || isProjectManagerOfTask || isTaskAssignee;
@@ -508,6 +510,11 @@ namespace ProjectManagementSystem.Services.Implementations
 
             if (request.DueDate.HasValue)
             {
+                if (!isAdmin && !isProjectManagerOfTask && !_permissionService.HasPermission(currentUser, "task.modify_due_date"))
+                {
+                    throw new UnauthorizedAccessException("没有修改预计截止时间的权限");
+                }
+
                 if (task.DueDate?.Date != request.DueDate.Value.Date)
                 {
                     TrackChange("预计截止时间", task.DueDate?.ToString("yyyy-MM-dd"), request.DueDate.Value.ToString("yyyy-MM-dd"));
@@ -706,7 +713,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new UnauthorizedAccessException("用户不存在或已禁用");
             }
 
-            var canUpdateStatus = currentUser.Role.Name == "管理员"
+            var canUpdateStatus = _permissionService.HasPermission(currentUser, "task.edit_all")
                 || task.Project.ManagerId == userId
                 || IsTaskAssignee(task, currentUser);
 
@@ -787,7 +794,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new KeyNotFoundException("项目不存在");
             }
 
-            if (currentUser.Role.Name != "管理员" && project.ManagerId != userId)
+            if (!_permissionService.HasPermission(currentUser, "project.view_all") && project.ManagerId != userId)
             {
                 var isProjectMember = await _context.ProjectMembers
                     .AsNoTracking()
@@ -870,7 +877,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new KeyNotFoundException("项目不存在");
             }
 
-            if (currentUser.Role.Name != "管理员" && project.ManagerId != userId)
+            if (!_permissionService.HasPermission(currentUser, "project.view_all") && project.ManagerId != userId)
             {
                 var isProjectMember = await _context.ProjectMembers
                     .AsNoTracking()
@@ -1004,7 +1011,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new UnauthorizedAccessException("用户不存在或已禁用");
             }
 
-            var canSubmitWork = currentUser.Role.Name == "管理员"
+            var canSubmitWork = _permissionService.HasPermission(currentUser, "task.edit_all")
                 || task.Project.ManagerId == userId
                 || IsTaskAssignee(task, currentUser);
 
@@ -1136,37 +1143,6 @@ namespace ProjectManagementSystem.Services.Implementations
 
         private async System.Threading.Tasks.Task SyncProjectStatusByTasksAsync(int projectId)
         {
-            var project = await _context.Projects.FirstOrDefaultAsync(p => p.Id == projectId);
-            if (project == null || project.Status == 3)
-            {
-                return;
-            }
-
-            var taskStatuses = await _context.Tasks
-                .Where(t => t.ProjectId == projectId && !t.IsDeleted)
-                .Select(t => t.Status)
-                .ToListAsync();
-
-            if (!taskStatuses.Any())
-            {
-                return;
-            }
-
-            var hasStarted = taskStatuses.Any(status => status == 1 || status == 2);
-            var allCompleted = taskStatuses.All(status => status == 2);
-
-            var targetStatus = allCompleted
-                ? 2
-                : (hasStarted ? 1 : 0);
-
-            if (project.Status == targetStatus)
-            {
-                return;
-            }
-
-            project.Status = targetStatus;
-            project.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
         }
 
         private async System.Threading.Tasks.Task ActivateNextTaskAsync(TaskEntity currentTask, int operatorUserId, bool adjustSchedule)

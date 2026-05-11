@@ -49,6 +49,8 @@ namespace ProjectManagementSystem.Models.DTOs
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
         public bool IsActive { get; set; }
+        public DateTime? LastLoginAt { get; set; }
+        public int LoginCount { get; set; }
     }
 
     public class UserListRequest

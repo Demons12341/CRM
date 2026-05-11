@@ -83,6 +83,8 @@ builder.Services.AddScoped<IMilestoneService, MilestoneService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<IAlertService, AlertService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<IBusinessLineService, BusinessLineService>();
 builder.Services.AddHostedService<FileCleanupHostedService>();
 
 // 添加控制器
@@ -372,6 +374,77 @@ CREATE TABLE IF NOT EXISTS `ProcessTemplateSteps` (
     catch (Exception ex)
     {
         Log.Information("ProcessTemplateSteps 排序索引初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("ALTER TABLE `Projects` ADD COLUMN `BusinessLine` VARCHAR(50) NULL;");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("Projects.BusinessLine 列初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw(@"
+CREATE TABLE IF NOT EXISTS `BusinessLines` (
+  `Id` int NOT NULL AUTO_INCREMENT,
+  `Name` varchar(50) NOT NULL,
+  `Description` varchar(200) NULL,
+  `SortOrder` int NOT NULL DEFAULT 0,
+  `IsDeleted` tinyint(1) NOT NULL DEFAULT 0,
+  `CreatedAt` datetime(6) NOT NULL,
+  `UpdatedAt` datetime(6) NOT NULL,
+  PRIMARY KEY (`Id`),
+  UNIQUE KEY `IX_BusinessLines_Name` (`Name`)
+);");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("BusinessLines 表初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("ALTER TABLE `Projects` ADD COLUMN `StatusChangedAt` DATETIME(6) NULL;");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("Projects.StatusChangedAt 列初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw(@"
+INSERT IGNORE INTO `BusinessLines` (`Name`, `SortOrder`, `IsDeleted`, `CreatedAt`, `UpdatedAt`) VALUES
+('超充业务线', 1, 0, NOW(6), NOW(6)),
+('数据中心供电业务线', 2, 0, NOW(6), NOW(6)),
+('绿电直连业务线', 3, 0, NOW(6), NOW(6)),
+('工业绿色微电网业务线', 4, 0, NOW(6), NOW(6)),
+('公共机构微电网业务线', 5, 0, NOW(6), NOW(6));");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("BusinessLines 种子数据初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("ALTER TABLE `Users` ADD COLUMN `LastLoginAt` DATETIME(6) NULL;");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("Users.LastLoginAt 列初始化跳过：{Message}", ex.Message);
+    }
+
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw("ALTER TABLE `Users` ADD COLUMN `LoginCount` INT NOT NULL DEFAULT 0;");
+    }
+    catch (Exception ex)
+    {
+        Log.Information("Users.LoginCount 列初始化跳过：{Message}", ex.Message);
     }
 }
 

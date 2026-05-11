@@ -5,10 +5,11 @@
         <div class="card-header">
           <span>用户管理</span>
           <div class="header-actions">
-            <el-button @click="downloadImportTemplate">
+            <el-button v-permission="'settings.users.import'" @click="downloadImportTemplate">
               下载Excel模板
             </el-button>
             <el-upload
+              v-permission="'settings.users.import'"
               :show-file-list="false"
               :http-request="uploadImportExcel"
               accept=".xlsx"
@@ -18,7 +19,7 @@
                 上传Excel导入
               </el-button>
             </el-upload>
-            <el-button type="primary" @click="showCreateDialog">
+            <el-button type="primary" v-permission="'settings.users.create'" @click="showCreateDialog">
               <el-icon><Plus /></el-icon>
               新建用户
             </el-button>
@@ -73,19 +74,27 @@
             {{ formatDateTime(row.createdAt) }}
           </template>
         </el-table-column>
+        <el-table-column prop="lastLoginAt" label="上次登录时间" width="160">
+          <template #default="{ row }">
+            {{ row.lastLoginAt ? formatDateTime(row.lastLoginAt) : '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="loginCount" label="累计登录次数" width="120" />
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link @click="editUser(row)">
+            <el-button type="primary" link v-permission="'settings.users.edit'" @click="editUser(row)">
               编辑
             </el-button>
             <el-button
               type="primary"
               link
+              v-permission="'settings.users.edit'"
               @click="toggleUserStatus(row)"
             >
               {{ row.isActive ? '禁用' : '启用' }}
             </el-button>
             <el-popconfirm
+              v-permission="'settings.users.delete'"
               title="确定要删除这个用户吗？"
               @confirm="deleteUser(row.id)"
             >
@@ -379,7 +388,7 @@ const downloadImportTemplate = async () => {
       }
     })
 
-    const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/octet-stream' })
+    const blob = new Blob([response.data], { type: String(response.headers['content-type'] || 'application/octet-stream') })
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url

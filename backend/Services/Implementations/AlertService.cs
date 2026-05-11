@@ -12,10 +12,12 @@ namespace ProjectManagementSystem.Services.Implementations
     {
         private const string SharedFolderProjectName = "共享文件夹";
         private readonly ApplicationDbContext _context;
+        private readonly IPermissionService _permissionService;
 
-        public AlertService(ApplicationDbContext context)
+        public AlertService(ApplicationDbContext context, IPermissionService permissionService)
         {
             _context = context;
+            _permissionService = permissionService;
         }
 
         public async Task<PaginatedResult<AlertDto>> GetAlertsAsync(int userId, int page, int pageSize, int? alertType, bool? isRead, int? alertStatus)
@@ -84,13 +86,13 @@ namespace ProjectManagementSystem.Services.Implementations
                 {
                     query = query.Where(a =>
                         (a.AlertType == 1 && a.TaskStatus == 2) ||
-                        (a.AlertType == 2 && a.ProjectStatus == 2));
+                        (a.AlertType == 2 && a.ProjectStatus == 10));
                 }
                 else
                 {
                     query = query.Where(a =>
                         (a.AlertType == 1 && a.TaskStatus != 2) ||
-                        (a.AlertType == 2 && a.ProjectStatus != 2) ||
+                        (a.AlertType == 2 && a.ProjectStatus != 10) ||
                         a.AlertType == 3);
                 }
             }
@@ -186,9 +188,9 @@ namespace ProjectManagementSystem.Services.Implementations
                     a.AlertType != 1 ||
                     _context.Tasks.Any(t => t.Id == a.TaskId && t.Status != 2))
                 .Where(a =>
-                    // 项目超期告警(AlertType=2)时，项目状态未完成(Status!=2)
+                    // 项目超期告警(AlertType=2)时，项目状态未完成(Status!=10)
                     a.AlertType != 2 ||
-                    _context.Projects.Any(p => p.Id == a.ProjectId && p.Status != 2))
+                    _context.Projects.Any(p => p.Id == a.ProjectId && p.Status != 10))
                 .CountAsync();
         }
 
@@ -231,6 +233,7 @@ namespace ProjectManagementSystem.Services.Implementations
             }
 
             var currentUser = await _context.Users
+                .Include(u => u.Role)
                 .AsNoTracking()
                 .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
 
@@ -239,7 +242,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 throw new UnauthorizedAccessException("用户不存在或已禁用");
             }
 
-            var isAdmin = currentUser.RoleId == 1;
+            var isAdmin = _permissionService.HasPermission(currentUser, "alert.edit_all");
 
             if (alert.AlertType == 1)
             {
@@ -469,11 +472,10 @@ namespace ProjectManagementSystem.Services.Implementations
 
             foreach (var project in projects)
             {
-                var isOverdueActive = project.Status != 2
-                && project.Status != 3
+                var isOverdueActive = project.Status != 10
                 && project.EndDate!.Value.Date < today;
 
-                var isCompletedOverdue = project.Status == 2
+                var isCompletedOverdue = project.Status == 10
                 && project.EndDate!.Value.Date < today;
 
                 if (!isOverdueActive && !isCompletedOverdue)
@@ -560,7 +562,7 @@ namespace ProjectManagementSystem.Services.Implementations
                 return 1;
             }
 
-            if (alert.AlertType == 2 && alert.ProjectStatus == 2)
+            if (alert.AlertType == 2 && alert.ProjectStatus == 10)
             {
                 return 1;
             }

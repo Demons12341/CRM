@@ -188,20 +188,101 @@ namespace ProjectManagementSystem.Services.Implementations
             return new List<MenuOptionDto>
             {
                 new() { Code = "dashboard", Name = "仪表盘" },
-                new() { Code = "projects", Name = "项目管理" },
-                new() { Code = "tasks", Name = "任务管理" },
-                new() { Code = "files", Name = "文件管理" },
+                new()
+                {
+                    Code = "projects",
+                    Name = "项目管理",
+                    Children = new List<MenuOptionDto>
+                    {
+                        new() { Code = "projects.create", Name = "新建项目" },
+                        new() { Code = "projects.edit", Name = "编辑项目" },
+                        new() { Code = "projects.delete", Name = "删除项目" },
+                        new() { Code = "projects.members", Name = "管理成员" }
+                    }
+                },
+                new()
+                {
+                    Code = "tasks",
+                    Name = "任务管理",
+                    Children = new List<MenuOptionDto>
+                    {
+                        new() { Code = "tasks.create", Name = "新建任务" },
+                        new() { Code = "tasks.edit", Name = "编辑任务" },
+                        new() { Code = "tasks.delete", Name = "删除任务" },
+                        new() { Code = "tasks.status", Name = "变更状态" }
+                    }
+                },
+                new()
+                {
+                    Code = "files",
+                    Name = "文件管理",
+                    Children = new List<MenuOptionDto>
+                    {
+                        new() { Code = "files.upload", Name = "上传文件" },
+                        new() { Code = "files.delete", Name = "删除文件" },
+                        new() { Code = "files.download", Name = "下载文件" }
+                    }
+                },
                 new() { Code = "alerts", Name = "超期告警" },
                 new() { Code = "processes", Name = "项目任务模板" },
+                new()
+                {
+                    Code = "business-lines",
+                    Name = "业务线管理",
+                    Children = new List<MenuOptionDto>
+                    {
+                        new() { Code = "business-lines.create", Name = "新建业务线" },
+                        new() { Code = "business-lines.edit", Name = "编辑业务线" },
+                        new() { Code = "business-lines.delete", Name = "删除业务线" }
+                    }
+                },
+                new()
+                {
+                    Code = "data_scope",
+                    Name = "数据权限",
+                    Children = new List<MenuOptionDto>
+                    {
+                        new() { Code = "project.view_all", Name = "查看所有项目" },
+                        new() { Code = "project.edit_all", Name = "编辑所有项目" },
+                        new() { Code = "project.manage_members_all", Name = "管理所有项目成员" },
+                        new() { Code = "task.view_all", Name = "查看所有任务" },
+                        new() { Code = "task.edit_all", Name = "编辑所有任务" },
+                        new() { Code = "task.modify_due_date", Name = "修改任务截止日期" },
+                        new() { Code = "file.access_all", Name = "访问所有项目文件" },
+                        new() { Code = "dashboard.view_all", Name = "查看全部仪表盘" },
+                        new() { Code = "alert.edit_all", Name = "编辑所有超期原因" }
+                    }
+                },
                 new()
                 {
                     Code = "settings",
                     Name = "系统设置",
                     Children = new List<MenuOptionDto>
                     {
-                        new() { Code = "settings.users", Name = "用户管理" },
-                        new() { Code = "settings.roles", Name = "角色管理" },
-                        new() { Code = "settings.menu", Name = "菜单权限" },
+                        new()
+                        {
+                            Code = "settings.users",
+                            Name = "用户管理",
+                            Children = new List<MenuOptionDto>
+                            {
+                                new() { Code = "settings.users.create", Name = "新建用户" },
+                                new() { Code = "settings.users.edit", Name = "编辑用户" },
+                                new() { Code = "settings.users.delete", Name = "删除用户" },
+                                new() { Code = "settings.users.import", Name = "导入用户" }
+                            }
+                        },
+                        new()
+                        {
+                            Code = "settings.roles",
+                            Name = "角色管理",
+                            Children = new List<MenuOptionDto>
+                            {
+                                new() { Code = "settings.roles.create", Name = "新建角色" },
+                                new() { Code = "settings.roles.edit", Name = "编辑角色" },
+                                new() { Code = "settings.roles.delete", Name = "删除角色" }
+                            }
+                        },
+                        new() { Code = "settings.menu", Name = "权限管理" },
                         new() { Code = "settings.profile", Name = "个人设置" }
                     }
                 }

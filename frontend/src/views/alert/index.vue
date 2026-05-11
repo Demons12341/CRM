@@ -136,6 +136,7 @@ import { ElMessage } from 'element-plus'
 import { request } from '@/api/request'
 import { useAlertUnread } from '../../composables/useAlertUnread'
 import dayjs from 'dayjs'
+import { hasPermission } from '@/directives/permission'
 
 const router = useRouter()
 
@@ -195,7 +196,7 @@ const canOperateOverdueReason = computed(() => {
 })
 
 const canEditOverdueReason = computed(() => {
-  const isAdmin = currentUser.value?.roleName === '管理员'
+  const isAdmin = hasPermission('alert.edit_all')
   const alertType = selectedAlert.value?.alertType
 
   if (alertType === 1) {
